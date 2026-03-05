@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
@@ -15,6 +15,13 @@ DATABASE = os.getenv("DATABASE")
 SQLALCHEMY_DATABASE_URI: str = (
     f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}:{DB_PORT}/{DATABASE}"
 )
+
+bootstrap_engine = create_engine(
+    f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}:{DB_PORT}"
+)
+with bootstrap_engine.connect() as conn:
+    conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {DATABASE}"))
+bootstrap_engine.dispose()
 
 engine = create_engine(SQLALCHEMY_DATABASE_URI)
 

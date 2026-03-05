@@ -1,31 +1,80 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
+from flasgger import Swagger
 from sqlalchemy import select
 from app.models import Patient, Allergies
 from app.database import engine, SessionLocal
+from app import models, seed
 
 app = Flask(__name__)
-
-from app import models
+swagger = Swagger(app, template={
+    "info": {
+        "title": "Patient Microservice API",
+        "version": "1.0.0",
+        "description": "Check for patient allergies and get patient details"
+    }
+})
 
 # create tables if not exist
-@app.before_request
-def init_db():
-    try:
-        models.Base.metadata.create_all(bind=engine)
-    except Exception:
-        pass
+with app.app_context():
+    models.Base.metadata.create_all(bind=engine)
 
-session = SessionLocal()
-
-from app import seed
+# to insert dummy data
 seed.register_cli(app)
+
+def get_db():
+    if 'db' not in g:
+        g.db = SessionLocal()
+    return g.db
+
+@app.teardown_appcontext
+def close_db(exception=None):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 @app.route("/patient/check-allergies", methods=['POST'])
 def check_allergies():
+    """
+    Check patient allergies against prescribed drugs
+    ---
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            patient_id:
+              type: string
+              example: "10000001"
+            prescription:
+              type: array
+              items:
+                type: string
+              example: ["Aspirin", "Ibuprofen"]
+    responses:
+      200:
+        description: Allergy check result
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            data:
+              type: object
+              properties:
+                check:
+                  type: string
+                  enum: ["PASSED", "FAILED"]
+                allergic_drugs:
+                  type: array
+                  items:
+                    type: string
+    """
     patient_id = request.json.get('patient_id')
     prescription_list = request.json.get('prescription', [])
 
-    allergy_list = session.scalars(
+    allergy_list = get_db().scalars(
         select(Allergies.allergy).filter_by(patient_id=patient_id)
     ).all()
 
@@ -60,7 +109,36 @@ def check_allergies():
 
 @app.route("/patient/<string:patient_id>/details")
 def find_by_id(patient_id):
-    patient = session.scalar(
+    """
+    Get patient details by ID
+    ---
+    parameters:
+      - name: patient_id
+        in: path
+        type: string
+        required: true
+        example: "10000001"
+    responses:
+      200:
+        description: Patient details retrieved successfully
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            data:
+              type: object
+      404:
+        description: Patient not found
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+    """
+    patient = get_db().scalar(
         select(Patient).filter_by(patient_id=patient_id)
     )
 

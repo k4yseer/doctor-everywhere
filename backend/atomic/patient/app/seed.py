@@ -1,13 +1,13 @@
 from app.database import SessionLocal
 from app.models import Patient, Allergies
-
+from sqlalchemy import delete
 
 def seed_database():
     """Insert dummy records into the database."""
     session = SessionLocal()
 
-    session.query(Patient).delete()
-    session.query(Allergies).delete()
+    session.execute(delete(Allergies))
+    session.execute(delete(Patient))
 
     patients = [
         Patient(

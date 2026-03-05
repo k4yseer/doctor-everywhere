@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import os
 from dotenv import load_dotenv
 
@@ -31,4 +31,5 @@ SessionLocal = sessionmaker(
     bind=engine,
     )
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass

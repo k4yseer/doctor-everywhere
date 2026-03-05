@@ -72,6 +72,18 @@ def check_allergies():
                     type: string
     """
     patient_id = request.json.get('patient_id')
+    patient = get_db().scalar(
+      select(Patient.patient_id).filter_by(patient_id=patient_id)
+    )
+
+    if not patient:
+      return jsonify(
+        {
+            "code": 404,
+            "message": "Patient not found"
+        }
+      ), 404
+
     prescription_list = request.json.get('prescription', [])
 
     allergy_list = get_db().scalars(

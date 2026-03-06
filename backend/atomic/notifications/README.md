@@ -19,6 +19,6 @@
 
 ## Accessing API Documentation
 
-Access and Swagger documentation and test the endpoints at
+Access Swagger documentation and test the endpoints at
 
 `http://localhost:5000/apidocs`

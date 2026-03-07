@@ -1,0 +1,65 @@
+services:
+
+  # ── Doctor Service ────────────────────────────────────────────────────────
+  doctor-service:
+    build:
+      context: ./atomic/doctor
+    ports:
+      - "5001:5001"
+    environment:
+      - dbURL=mysql+pymysql://root:root@doctor-db:3306/doctor_db
+    depends_on:
+      doctor-db:
+        condition: service_healthy
+
+  doctor-db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: doctor_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - doctor_db_data:/var/lib/mysql
+      - ./atomic/doctor/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-u", "root", "--password=root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Appointment Service ───────────────────────────────────────────────────
+  appointment-service:
+    build:
+      context: ./atomic/appointment
+    ports:
+      - "5002:5002"
+    environment:
+      - dbURL=mysql+pymysql://root:root@appointment-db:3306/appointment_db
+    depends_on:
+      appointment-db:
+        condition: service_healthy
+
+  appointment-db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: appointment_db
+    ports:
+      - "3308:3306"
+    volumes:
+      - appointment_db_data:/var/lib/mysql
+      - ./atomic/appointment/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-u", "root", "--password=root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  doctor_db_data:
+  appointment_db_data:

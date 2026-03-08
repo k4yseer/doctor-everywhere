@@ -1,5 +1,5 @@
 # use a slim Python image
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # set workdir and copy sources
 WORKDIR /usr/src/app
@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 5000
 ENV FLASK_APP=app.main
 ENV PYTHONPATH=/usr/src/app
-CMD ["flask", "run", "--host=0.0.0.0"]
+CMD ["flask", "run", "--host=0.0.0.0",  "--port=5003"]

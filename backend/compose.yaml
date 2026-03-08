@@ -59,7 +59,41 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+  # ── Patient Service ───────────────────────────────────────────────────
+  patient-service:
+    build:
+      context: ./atomic/patient
+    ports:
+      - "5003:5003"
+    env_file: .env
+    depends_on:
+      patient-db:
+        condition: service_healthy
+  patient-db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DATABASE}
+    ports:
+      - "3309:3306"
+    volumes:
+      - patient_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-u", "root", "--password=${DB_PASSWORD}"]
+      interval: 5s       
+      timeout: 5s        
+      retries: 10         
+      start_period: 30s
+  # ── Notification Service ───────────────────────────────────────────────────
+  notification-service:
+    build:
+      context: ./atomic/notifications
+    ports:
+      - "5004:5004"
+    env_file: .env
 
 volumes:
   doctor_db_data:
   appointment_db_data:
+  patient_db_data:

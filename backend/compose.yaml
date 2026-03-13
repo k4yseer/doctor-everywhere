@@ -139,8 +139,40 @@ services:
       - "5006:5006"
     env_file: .env
 
+  # ── Error Service ─────────────────────────────────────────────────────────
+  error-service:
+    build:
+      context: ./atomic/error
+    ports:
+      - "5007:5007"
+    environment:
+      - dbURL=mysql+pymysql://root:root@error-db:3306/error_db
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      error-db:
+        condition: service_healthy
+ 
+  error-db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: error_db
+    ports:
+      - "3311:3306"
+    volumes:
+      - error_db_data:/var/lib/mysql
+      - ./atomic/error/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-u", "root", "--password=root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
 volumes:
   doctor_db_data:
   appointment_db_data:
   patient_db_data:
   invoice_db_data:
+  error_db_data:

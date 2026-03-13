@@ -123,6 +123,22 @@ services:
       - "5004:5004"
     env_file: .env
 
+  # ── Payment Wrapper Service ────────────────────────────────────────────────
+  payment-wrapper:
+    build:
+      context: ./atomic/payment_wrapper
+    ports:
+      - "5005:5005"
+    env_file: .env
+
+  # ── Teleconferencing Wrapper Service ──────────────────────────────────────
+  teleconferencing-wrapper:
+    build:
+      context: ./atomic/teleconferencing_wrapper
+    ports:
+      - "5006:5006"
+    env_file: .env
+
 volumes:
   doctor_db_data:
   appointment_db_data:

@@ -59,6 +59,36 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  # ── Invoice Service ───────────────────────────────────────────────────
+  invoice-service:
+    build:
+      context: ./atomic/invoice
+    ports:
+      - "5005:5005"
+    environment:
+      - dbURL=mysql+pymysql://root:root@invoice-db:3306/invoice_db
+    depends_on:
+      invoice-db:
+        condition: service_healthy
+
+  invoice-db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: invoice_db
+    ports:
+      - "3310:3306"
+    volumes:
+      - invoice_db_data:/var/lib/mysql
+      - ./atomic/invoice/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-u", "root", "--password=root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
   # ── Patient Service ───────────────────────────────────────────────────
   patient-service:
     build:
@@ -113,3 +143,4 @@ volumes:
   doctor_db_data:
   appointment_db_data:
   patient_db_data:
+  invoice_db_data:

@@ -1,12 +1,12 @@
 FROM python:3.11-slim
-
+ 
 WORKDIR /app
-
+ 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-COPY app/error_service.py .
-
-EXPOSE 5005
-
-CMD ["python", "error_service.py"]
+ 
+COPY app/main.py .
+ 
+EXPOSE 5008
+ 
+CMD ["python", "main.py"]

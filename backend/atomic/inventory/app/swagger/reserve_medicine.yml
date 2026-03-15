@@ -1,0 +1,30 @@
+tags:
+  - Inventory
+summary: Reserve medicine for an appointment.
+parameters:
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      required:
+        - medicine_code
+        - appointment_id
+        - amount
+      properties:
+        medicine_code:
+          type: string
+          example: MED-001
+        appointment_id:
+          type: integer
+          example: 123
+        amount:
+          type: integer
+          example: 2
+responses:
+  201:
+    description: Reservation created successfully
+  400:
+    description: Missing fields or insufficient stock
+  404:
+    description: Medicine not found

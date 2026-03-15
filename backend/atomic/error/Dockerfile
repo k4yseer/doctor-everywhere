@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/error_service.py .
 
-EXPOSE 5005
+EXPOSE 5007
 
 CMD ["python", "error_service.py"]

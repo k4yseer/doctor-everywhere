@@ -208,4 +208,4 @@ if __name__ == "__main__":
     consumer_thread = threading.Thread(target=start_amqp_consumer, daemon=True)
     consumer_thread.start()
 
-    app.run(host="0.0.0.0", port=5005, debug=False)
+    app.run(host="0.0.0.0", port=5007, debug=False)

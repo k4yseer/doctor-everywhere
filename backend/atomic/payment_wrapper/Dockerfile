@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./app ./app
 
 # Expose the port your wrapper runs on (matching your .env)
-EXPOSE 5005
+EXPOSE 5008
 
 # Command to run the service
 CMD ["python", "app/main.py"]

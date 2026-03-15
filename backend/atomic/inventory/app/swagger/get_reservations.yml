@@ -1,0 +1,6 @@
+tags:
+  - Inventory
+summary: Get all reservations.
+responses:
+  200:
+    description: List of reservations

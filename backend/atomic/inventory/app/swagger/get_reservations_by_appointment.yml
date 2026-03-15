@@ -1,0 +1,11 @@
+tags:
+  - Inventory
+summary: Get reservations by appointment id.
+parameters:
+  - name: appointment_id
+    in: path
+    type: integer
+    required: true
+responses:
+  200:
+    description: Reservations for appointment id

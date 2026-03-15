@@ -1,0 +1,13 @@
+tags:
+  - Inventory
+summary: Fulfill reservations by appointment id.
+parameters:
+  - name: appointment_id
+    in: path
+    type: integer
+    required: true
+responses:
+  200:
+    description: Reservations fulfilled successfully
+  404:
+    description: No reservations found for appointment id

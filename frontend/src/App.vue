@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
+import AppointmentList from './domains/appointment/components/AppointmentList.vue';
 </script>
 
 <template>
-  <HelloWorld />
+  <div class="min-h-screen bg-gray-50 p-8">
+    <AppointmentList :appointment-ids="[1, 2, 3]" />
+  </div>
 </template>

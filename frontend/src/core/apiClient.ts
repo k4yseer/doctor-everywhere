@@ -1,8 +1,9 @@
 import axios from 'axios'
+import { handleApiError } from './errorHandling'
 
 // connect to api gateway
 const apiClient = axios.create({
-    baseURL: import.meta.env.VITE_API_GATEWAY_URL,
+    baseURL: import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8080/api',
     headers: {
         'Content-Type': 'application/json',
     },
@@ -20,23 +21,13 @@ apiClient.interceptors.request.use(
 
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => handleApiError(error)
 );
 
 // axios response interceptor
 apiClient.interceptors.response.use(
-    (response) => { // if succeed
-        return response; // pass data
-    },
-    (error) => {
-        if (error.response && error.response.status === 401) { // if unauthorised
-            console.log("Unauthorised access. Token may have expired.")
-            // TODO: trigger silent token refresh or redirect to /login route here
-        }
-        return Promise.reject(error);
-    }
+    (response) => response, // if succeed, pass data
+    (error) => handleApiError(error)
 );
 
 export default apiClient;

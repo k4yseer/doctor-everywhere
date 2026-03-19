@@ -9,8 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@primeuix/themes": "^2.0.3",
+    "@tailwindcss/vite": "^4.2.2",
     "axios": "^1.13.6",
     "pinia": "^3.0.4",
+    "postcss": "^8.5.8",
+    "primevue": "^4.5.4",
+    "tailwindcss": "^4.2.2",
+    "tailwindcss-primeui": "^0.6.1",
     "vue": "^3.5.30",
     "vue-router": "^5.0.4"
   },

@@ -1,12 +1,17 @@
-from flask import Flask, request, jsonify, g
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Enum, ForeignKey, select
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from datetime import datetime
+import json
 from os import environ
+
+import pika
+from flask import Flask, g, jsonify, request
+from sqlalchemy import Column, Enum, Integer, String, create_engine, select
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
 
-DB_URL = environ.get('dbURL', 'mysql+pymysql://root:root@localhost:3306/doctor_db')
+DB_URL = environ.get("dbURL", "mysql+pymysql://root:root@localhost:3306/doctor_db")
+AMQP_URL = environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
+SERVICE_NAME = "doctor"
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -16,34 +21,19 @@ class Base(DeclarativeBase):
 
 
 class Doctor(Base):
-    __tablename__ = 'doctors'
+    __tablename__ = "doctors"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(128), nullable=False)
     specialty = Column(String(128), nullable=False)
+    status = Column(Enum("AVAILABLE", "UNAVAILABLE"), nullable=False, default="AVAILABLE")
 
     def json(self):
         return {
             "id": self.id,
             "name": self.name,
-            "specialty": self.specialty
-        }
-
-
-class Availability(Base):
-    __tablename__ = 'availability'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    doctor_id = Column(Integer, ForeignKey('doctors.id', ondelete='CASCADE'), nullable=False)
-    slot_datetime = Column(DateTime, nullable=False)
-    status = Column(Enum('AVAILABLE', 'RESERVED'), nullable=False, default='AVAILABLE')
-
-    def json(self):
-        return {
-            "id": self.id,
-            "doctor_id": self.doctor_id,
-            "slot_datetime": self.slot_datetime.isoformat(),
-            "status": self.status
+            "specialty": self.specialty,
+            "status": self.status,
         }
 
 
@@ -52,198 +42,83 @@ with app.app_context():
 
 
 def get_db():
-    if 'db' not in g:
+    if "db" not in g:
         g.db = SessionLocal()
     return g.db
 
 
 @app.teardown_appcontext
 def close_db(exception=None):
-    db = g.pop('db', None)
+    db = g.pop("db", None)
     if db is not None:
         db.close()
 
 
+def publish_error(error_code, error_message, payload=None):
+    message = {
+        "source_service": SERVICE_NAME,
+        "error_code": error_code,
+        "error_message": error_message,
+        "payload": payload or {},
+    }
+
+    try:
+        connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
+        channel = connection.channel()
+        channel.exchange_declare(exchange="topic_logs", exchange_type="topic", durable=True)
+        channel.basic_publish(
+            exchange="topic_logs",
+            routing_key=f"{SERVICE_NAME}.error",
+            body=json.dumps(message),
+            properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
+        )
+        connection.close()
+    except Exception:
+        # Error reporting should never break request handling.
+        pass
+
+
+def error_response(status_code, message, error_code, payload=None):
+    publish_error(error_code=error_code, error_message=message, payload=payload)
+    return jsonify({"code": status_code, "message": message}), status_code
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    if isinstance(err, HTTPException):
+        return error_response(
+            err.code or 500,
+            err.description,
+            f"DOC-{err.code or 500}-HTTP",
+            {"path": request.path, "method": request.method},
+        )
+
+    return error_response(
+        500,
+        "Internal server error",
+        "DOC-500-UNHANDLED",
+        {"path": request.path, "method": request.method, "error": str(err)},
+    )
+
+
 @app.route("/doctors", methods=["GET"])
 def get_all_doctors():
-    """
-    Returns all doctors.
-    ---
-    responses:
-      200:
-        description: List of all doctors
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            data:
-              type: array
-              items:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                  name:
-                    type: string
-                  specialty:
-                    type: string
-    """
     db = get_db()
-    doctors = db.execute(select(Doctor)).scalars().all()
+    raw_status = request.args.get("status") or "available"
+    requested_status = raw_status.upper()
+
+    if requested_status not in {"AVAILABLE", "UNAVAILABLE"}:
+        return error_response(
+            400,
+            "Invalid status. Must be AVAILABLE or UNAVAILABLE.",
+            "DOC-400-INVALID_STATUS",
+            {"status": raw_status},
+        )
+
+    query = select(Doctor).where(Doctor.status == requested_status)
+    doctors = db.execute(query).scalars().all()
     return jsonify({"code": 200, "data": [d.json() for d in doctors]}), 200
 
 
-@app.route("/doctors/<int:id>/availability", methods=["GET"])
-def get_availability(id):
-    """
-    Returns all AVAILABLE slots for a given doctor.
-    ---
-    parameters:
-      - name: id
-        in: path
-        type: integer
-        required: true
-    responses:
-      200:
-        description: List of available slots
-      404:
-        description: Doctor not found
-    """
-    db = get_db()
-    doctor = db.get(Doctor, id)
-    if not doctor:
-        return jsonify({"code": 404, "message": "Doctor not found"}), 404
-
-    slots = db.execute(
-        select(Availability).where(
-            Availability.doctor_id == id,
-            Availability.status == 'AVAILABLE'
-        )
-    ).scalars().all()
-
-    return jsonify({"code": 200, "data": [s.json() for s in slots]}), 200
-
-
-@app.route("/doctors/<int:id>/slot/reserve", methods=["PUT"])
-def reserve_slot(id):
-    """
-    Reserves an AVAILABLE slot; returns 409 if already taken.
-    ---
-    parameters:
-      - name: id
-        in: path
-        type: integer
-        required: true
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            slot_datetime:
-              type: string
-              example: "2026-03-10T09:00:00"
-    responses:
-      200:
-        description: Slot reserved successfully
-      400:
-        description: Missing slot_datetime
-      404:
-        description: Doctor not found
-      409:
-        description: Slot not available
-    """
-    db = get_db()
-    doctor = db.get(Doctor, id)
-    if not doctor:
-        return jsonify({"code": 404, "message": "Doctor not found"}), 404
-
-    data = request.get_json()
-    raw_dt = data.get("slot_datetime") if data else None
-    if not raw_dt:
-        return jsonify({"code": 400, "message": "slot_datetime is required"}), 400
-
-    try:
-        slot_dt = datetime.fromisoformat(raw_dt)
-    except ValueError:
-        return jsonify({"code": 400, "message": "Invalid slot_datetime format. Use ISO 8601."}), 400
-
-    slot = db.execute(
-        select(Availability).where(
-            Availability.doctor_id == id,
-            Availability.slot_datetime == slot_dt,
-            Availability.status == 'AVAILABLE'
-        )
-    ).scalars().first()
-
-    if not slot:
-        return jsonify({"code": 409, "message": "Slot is not available or does not exist"}), 409
-
-    slot.status = 'RESERVED'
-    db.commit()
-    db.refresh(slot)
-    return jsonify({"code": 200, "message": "Slot reserved successfully", "data": slot.json()}), 200
-
-
-@app.route("/doctors/<int:id>/slot/release", methods=["PUT"])
-def release_slot(id):
-    """
-    Releases a RESERVED slot back to AVAILABLE.
-    ---
-    parameters:
-      - name: id
-        in: path
-        type: integer
-        required: true
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            slot_datetime:
-              type: string
-              example: "2026-03-10T09:00:00"
-    responses:
-      200:
-        description: Slot released successfully
-      400:
-        description: Missing slot_datetime
-      404:
-        description: Reserved slot not found
-    """
-    db = get_db()
-    doctor = db.get(Doctor, id)
-    if not doctor:
-        return jsonify({"code": 404, "message": "Doctor not found"}), 404
-
-    data = request.get_json()
-    raw_dt = data.get("slot_datetime") if data else None
-    if not raw_dt:
-        return jsonify({"code": 400, "message": "slot_datetime is required"}), 400
-
-    try:
-        slot_dt = datetime.fromisoformat(raw_dt)
-    except ValueError:
-        return jsonify({"code": 400, "message": "Invalid slot_datetime format. Use ISO 8601."}), 400
-
-    slot = db.execute(
-        select(Availability).where(
-            Availability.doctor_id == id,
-            Availability.slot_datetime == slot_dt,
-            Availability.status == 'RESERVED'
-        )
-    ).scalars().first()
-
-    if not slot:
-        return jsonify({"code": 404, "message": "No RESERVED slot found for the given datetime"}), 404
-
-    slot.status = 'AVAILABLE'
-    db.commit()
-    db.refresh(slot)
-    return jsonify({"code": 200, "message": "Slot released successfully", "data": slot.json()}), 200
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5001, debug=True)

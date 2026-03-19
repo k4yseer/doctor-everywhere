@@ -8,8 +8,11 @@ services:
       - "5001:5001"
     environment:
       - dbURL=mysql+pymysql://root:root@doctor-db:3306/doctor_db
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
       doctor-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   doctor-db:
@@ -38,8 +41,11 @@ services:
       - "5002:5002"
     environment:
       - dbURL=mysql+pymysql://root:root@appointment-db:3306/appointment_db
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
       appointment-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   appointment-db:

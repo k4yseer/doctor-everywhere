@@ -228,6 +228,52 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+  # ── Queue Service ─────────────────────────────────────────────────────────
+  queue-service:
+    build:
+      context: ./atomic/queue
+    ports:
+      - "5011:5011"
+    environment:
+      - dbURL=mysql+pymysql://root:root@queue-db:3306/queue_db
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      queue-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  queue-db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: queue_db
+    ports:
+      - "3313:3306"
+    volumes:
+      - queue_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-u", "root", "--password=root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Join Queue Service ───────────────────────────────────────────────────
+  join-queue-service:
+    build:
+      context: ./composite/join_queue
+    ports:
+      - "5010:5010"
+    environment:
+      - QUEUE_SERVICE_URL=http://queue-service:5011
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      queue-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
   doctor_db_data:
@@ -236,3 +282,4 @@ volumes:
   invoice_db_data:
   error_db_data:
   inventory_db_data:
+  queue_db_data:

@@ -1,0 +1,253 @@
+from datetime import datetime, timezone
+from os import environ
+
+from flask import Flask, g, jsonify, request
+from sqlalchemy import Column, DateTime, Integer, String, create_engine, func
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from werkzeug.exceptions import HTTPException
+from flasgger import Swagger
+
+from app.error_publisher import publish_error as _publish_error
+
+app = Flask(__name__)
+Swagger(app, template={
+    "info": {
+        "title": "Queue Service API",
+        "version": "1.0.0",
+        "description": "Atomic service for managing the patient consultation queue.",
+    }
+})
+
+DB_URL = environ.get("dbURL", "mysql+pymysql://root:root@queue-db:3306/queue_db")
+SERVICE_NAME = "queue"
+
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class QueueEntry(Base):
+    __tablename__ = "queue_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(String(64), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+with app.app_context():
+    Base.metadata.create_all(bind=engine)
+
+
+def get_db():
+    if "db" not in g:
+        g.db = SessionLocal()
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception=None):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def error_response(status_code, message, error_code, payload=None):
+    if status_code >= 500:
+        _publish_error(source_service=SERVICE_NAME, error_code=error_code, error_message=message, payload=payload)
+    return jsonify({"code": status_code, "message": message}), status_code
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    if isinstance(err, HTTPException):
+        return error_response(
+            err.code or 500,
+            err.description,
+            f"QUEUE-{err.code or 500}-HTTP",
+            {"path": request.path, "method": request.method},
+        )
+    return error_response(
+        500,
+        "Internal server error",
+        "QUEUE-500-UNHANDLED",
+        {"path": request.path, "method": request.method, "error": str(err)},
+    )
+
+
+@app.route("/queue", methods=["POST"])
+def create_queue_entry():
+    """
+    Add a patient to the queue.
+    ---
+    tags:
+      - Queue
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - patient_id
+          properties:
+            patient_id:
+              type: string
+              example: "10000001"
+    responses:
+      201:
+        description: Patient added to the queue
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 201
+            queue_id:
+              type: integer
+              example: 4
+            queue_position:
+              type: integer
+              example: 4
+      400:
+        description: Missing or invalid request body
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 400
+            message:
+              type: string
+              example: "patient_id is required"
+      409:
+        description: Patient is already in the queue
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 409
+            message:
+              type: string
+              example: "Patient is already in the queue"
+    """
+    db = get_db()
+    data = request.get_json()
+
+    if not data:
+        return error_response(400, "Request body is required", "QUEUE-400-MISSING_BODY")
+
+    patient_id = data.get("patient_id")
+    if not patient_id:
+        return error_response(400, "patient_id is required", "QUEUE-400-MISSING_FIELDS", {"patient_id": patient_id})
+
+    existing = db.query(QueueEntry).filter(QueueEntry.patient_id == patient_id).first()
+    if existing:
+        return error_response(409, "Patient is already in the queue", "QUEUE-409-DUPLICATE", {"patient_id": patient_id})
+
+    entry = QueueEntry(patient_id=patient_id, created_at=datetime.now(timezone.utc))
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    queue_position = db.query(func.count(QueueEntry.id)).scalar()
+
+    return jsonify({"code": 201, "queue_id": entry.id, "queue_position": queue_position}), 201
+
+
+@app.route("/queue/position/<string:patient_id>", methods=["GET"])
+def get_queue_position(patient_id):
+    """
+    Get a patient's current position in the queue.
+    ---
+    tags:
+      - Queue
+    parameters:
+      - in: path
+        name: patient_id
+        type: string
+        required: true
+        example: "10000001"
+    responses:
+      200:
+        description: Queue position retrieved
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            patient_id:
+              type: string
+              example: "10000001"
+            queue_position:
+              type: integer
+              example: 2
+      404:
+        description: Patient not found in queue
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 404
+            message:
+              type: string
+              example: "Patient not found in queue"
+    """
+    db = get_db()
+    entry = db.query(QueueEntry).filter(QueueEntry.patient_id == patient_id).first()
+    if not entry:
+        return error_response(404, "Patient not found in queue", "QUEUE-404-NOT_FOUND", {"patient_id": patient_id})
+    position = db.query(func.count(QueueEntry.id)).filter(QueueEntry.created_at <= entry.created_at).scalar()
+    return jsonify({"code": 200, "patient_id": patient_id, "queue_position": position}), 200
+
+
+@app.route("/queue/head", methods=["DELETE"])
+def dequeue_head():
+    """
+    Remove the patient at the head of the queue and return their ID.
+    ---
+    tags:
+      - Queue
+    responses:
+      200:
+        description: Head of queue removed
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            patient_id:
+              type: string
+              example: "10000001"
+      404:
+        description: Queue is empty
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 404
+            message:
+              type: string
+              example: "Queue is empty"
+    """
+    db = get_db()
+    entry = db.query(QueueEntry).order_by(QueueEntry.created_at).first()
+    if not entry:
+        return error_response(404, "Queue is empty", "QUEUE-404-EMPTY")
+    patient_id = entry.patient_id
+    db.delete(entry)
+    db.commit()
+    return jsonify({"code": 200, "patient_id": patient_id}), 200
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5011, debug=True)

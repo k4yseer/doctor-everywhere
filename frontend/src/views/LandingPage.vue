@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const tags = ['Instant Access', 'No Appointments', 'Telehealth']
 
@@ -130,7 +133,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <button class="join-queue-btn">
+          <button class="join-queue-btn" @click="router.push('/queue')">
             Join Queue Now
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
               <path d="M5 12h14M12 5l7 7-7 7" />

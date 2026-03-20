@@ -1,36 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import InputText from 'primevue/inputtext'
-import Select from 'primevue/select'
+import { onMounted, onUnmounted } from 'vue'
 
-const doctorName = ref('')
-const selectedSpecialty = ref<{ label: string; value: string } | null>(null)
-const selectedSymptom = ref<{ label: string; value: string } | null>(null)
-
-const specialties = [
-  { label: 'General Practitioner', value: 'gp' },
-  { label: 'Cardiologist', value: 'cardiologist' },
-  { label: 'Dermatologist', value: 'dermatologist' },
-  { label: 'Neurologist', value: 'neurologist' },
-  { label: 'Pediatrician', value: 'pediatrician' },
-  { label: 'Psychiatrist', value: 'psychiatrist' },
-  { label: 'Orthopedist', value: 'orthopedist' },
-  { label: 'Oncologist', value: 'oncologist' },
-]
-
-const symptoms = [
-  { label: 'Headache', value: 'headache' },
-  { label: 'Fever', value: 'fever' },
-  { label: 'Cough', value: 'cough' },
-  { label: 'Fatigue', value: 'fatigue' },
-  { label: 'Joint Pain', value: 'joint-pain' },
-  { label: 'Skin Rash', value: 'skin-rash' },
-  { label: 'Stomach Pain', value: 'stomach-pain' },
-  { label: 'Anxiety', value: 'anxiety' },
-  { label: 'Shortness of Breath', value: 'sob' },
-]
-
-const tags = ['some', 'tags', 'here']
+const tags = ['Instant Access', 'No Appointments', 'Telehealth']
 
 interface Pill {
   w: number; h: number; x: number; y: number; r: number
@@ -110,55 +81,61 @@ onUnmounted(() => {
           Doctor<br />Everywhere<span class="accent-dot">.</span>
         </h1>
 
-        <!-- Search card -->
-        <div class="search-card">
-          <!-- Doctor name row -->
-          <div class="search-name-row">
-            <svg class="row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+        <!-- Join Queue card -->
+        <div class="join-card">
+          <p class="join-card-label">How it works</p>
+
+          <div class="steps-row">
+            <div class="step">
+              <div class="step-bubble">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </div>
+              <span class="step-label">Join the queue</span>
+            </div>
+
+            <div class="step-connector">
+              <svg viewBox="0 0 24 6" fill="none" width="32" height="6">
+                <path d="M0 3 Q8 0 16 3 Q24 6 32 3" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-dasharray="3 2" />
+              </svg>
+            </div>
+
+            <div class="step">
+              <div class="step-bubble">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                </svg>
+              </div>
+              <span class="step-label">Doctor assigned</span>
+            </div>
+
+            <div class="step-connector">
+              <svg viewBox="0 0 24 6" fill="none" width="32" height="6">
+                <path d="M0 3 Q8 0 16 3 Q24 6 32 3" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-dasharray="3 2" />
+              </svg>
+            </div>
+
+            <div class="step">
+              <div class="step-bubble">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                  <polygon points="23 7 16 12 23 17 23 7" />
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+              </div>
+              <span class="step-label">Consult online</span>
+            </div>
+          </div>
+
+          <button class="join-queue-btn">
+            Join Queue Now
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+              <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>
-            <InputText
-              v-model="doctorName"
-              placeholder="Search"
-              class="name-input"
-            />
-          </div>
-
-          <!-- Filters row -->
-          <div class="search-filter-row">
-            <div class="filter-wrap">
-              <svg class="row-icon small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4.5 6.375a4.125 4.125 0 1 1 8.25 0 4.125 4.125 0 0 1-8.25 0ZM14.25 8.625a3.375 3.375 0 1 1 6.75 0 3.375 3.375 0 0 1-6.75 0ZM1.5 19.125a7.125 7.125 0 0 1 14.25 0v.003l-.001.119a.75.75 0 0 1-.363.63 13.067 13.067 0 0 1-6.761 1.873c-2.472 0-4.786-.684-6.76-1.873a.75.75 0 0 1-.364-.63l-.001-.122ZM17.25 19.128l-.001.144a2.25 2.25 0 0 1-.233.96 10.088 10.088 0 0 0 5.06-1.01.75.75 0 0 0 .42-.643 4.875 4.875 0 0 0-6.957-4.611 8.586 8.586 0 0 1 1.71 5.157v.003Z" />
-              </svg>
-              <Select
-                v-model="selectedSpecialty"
-                :options="specialties"
-                option-label="label"
-                placeholder="Specialty"
-                class="filter-select"
-              />
-            </div>
-
-            <div class="filter-wrap">
-              <!-- pulse / symptom icon -->
-              <svg class="row-icon small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-              </svg>
-              <Select
-                v-model="selectedSymptom"
-                :options="symptoms"
-                option-label="label"
-                placeholder="Symptoms"
-                class="filter-select"
-              />
-            </div>
-
-            <button class="search-go-btn" aria-label="Search">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-              </svg>
-            </button>
-          </div>
+          </button>
         </div>
 
         <p class="hero-desc">
@@ -313,146 +290,88 @@ onUnmounted(() => {
   color: #22c55e;
 }
 
-/* ─── Search card ─────────────────────────────────────────── */
-.search-card {
+/* ─── Join Queue card ─────────────────────────────────────── */
+.join-card {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 1.25rem;
-  padding: 0.5rem;
+  padding: 1.25rem 1.4rem 1.4rem;
   margin-bottom: 1.75rem;
   backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
 }
 
-.search-name-row {
+.join-card-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+  margin: 0;
+}
+
+.steps-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.8rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  margin-bottom: 0.4rem;
+  gap: 0.35rem;
 }
 
-.row-icon {
-  width: 18px;
-  height: 18px;
-  color: rgba(255, 255, 255, 0.4);
-  flex-shrink: 0;
-
-  &.small {
-    width: 15px;
-    height: 15px;
-  }
-}
-
-/* override PrimeVue InputText for dark bg */
-.name-input {
-  width: 100%;
-}
-
-:deep(.name-input.p-inputtext) {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: #fff !important;
-  font-size: 0.92rem !important;
-  padding: 0 !important;
-  font-family: 'Inter', sans-serif !important;
-
-  &::placeholder {
-    color: rgba(255, 255, 255, 0.32) !important;
-  }
-
-  &:focus {
-    outline: none !important;
-    box-shadow: none !important;
-  }
-}
-
-.search-filter-row {
+.step {
   display: flex;
-  gap: 0.4rem;
-  padding: 0 0.4rem 0.4rem;
+  flex-direction: column;
   align-items: center;
-}
-
-.filter-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 0.8rem;
-  padding: 0.35rem 0.6rem 0.35rem 0.75rem;
-  /* Override PrimeVue design tokens so the Select has no background of its own */
-  --p-select-background: transparent;
-  --p-select-border-color: transparent;
-  --p-select-hover-border-color: transparent;
-  --p-select-focus-border-color: transparent;
-  --p-select-shadow: none;
-  --p-select-color: rgba(255, 255, 255, 0.65);
-  --p-select-placeholder-color: rgba(255, 255, 255, 0.4);
-
-  &:focus-within {
-    border-color: rgba(34, 197, 94, 0.4);
-    background: rgba(34, 197, 94, 0.06);
-  }
-}
-
-.filter-select {
+  gap: 0.5rem;
   flex: 1;
 }
 
-/* Override PrimeVue Select internals */
-:deep(.filter-select .p-select) {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  min-width: 0 !important;
-  display: flex;
-  align-items: center;
-}
-
-:deep(.filter-select .p-select-label) {
-  color: rgba(255, 255, 255, 0.65) !important;
-  font-size: 0.83rem !important;
-  padding: 0 !important;
-  font-family: 'Inter', sans-serif !important;
-}
-
-:deep(.filter-select .p-select-dropdown) {
-  color: rgba(255, 255, 255, 0.35) !important;
-  width: 14px !important;
-  margin-left: 4px;
-}
-
-:deep(.filter-select .p-select-dropdown svg) {
-  width: 12px !important;
-  height: 12px !important;
-}
-
-
-.search-go-btn {
-  background: #22c55e;
-  border: none;
-  width: 46px;
-  height: 46px;
-  min-width: 46px;
-  border-radius: 0.8rem;
+.step-bubble {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #4ade80;
+}
+
+.step-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.step-connector {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-bottom: 1.4rem;
+}
+
+.join-queue-btn {
+  background: #22c55e;
+  border: none;
+  border-radius: 0.85rem;
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  color: #fff;
   cursor: pointer;
-  color: white;
-  transition: background 0.2s, transform 0.1s;
+  letter-spacing: -0.01em;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
 
   &:hover {
     background: #16a34a;
+    box-shadow: 0 6px 28px rgba(34, 197, 94, 0.45);
   }
 
   &:active {
-    transform: scale(0.93);
+    transform: scale(0.97);
   }
 }
 
@@ -583,34 +502,3 @@ onUnmounted(() => {
 }
 </style>
 
-<!-- Unscoped: targets teleported PrimeVue Select overlay -->
-<style>
-.p-dark .p-select-overlay {
-  background: #192a1d !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  border-radius: 0.875rem !important;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7) !important;
-}
-
-.p-dark .p-select-list {
-  padding: 0.4rem !important;
-}
-
-.p-dark .p-select-option {
-  color: rgba(255, 255, 255, 0.72) !important;
-  font-size: 0.875rem !important;
-  border-radius: 0.5rem !important;
-  font-family: 'Inter', system-ui, sans-serif !important;
-}
-
-.p-dark .p-select-option:hover,
-.p-dark .p-select-option.p-focus {
-  background: rgba(34, 197, 94, 0.14) !important;
-  color: #fff !important;
-}
-
-.p-dark .p-select-option.p-select-option-selected {
-  background: rgba(34, 197, 94, 0.2) !important;
-  color: #4ade80 !important;
-}
-</style>

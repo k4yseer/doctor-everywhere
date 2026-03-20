@@ -12,8 +12,7 @@ swagger = Swagger(app, template={
         "title": "Join Queue Composite Service API",
         "version": "1.0.0",
         "description": (
-            "Orchestrates patient lookup, doctor availability, Zoom meeting creation, "
-            "appointment creation, and queue event publishing when a patient books a consultation."
+            "Orchestrates doctor availability and queue entry"
         )
     }
 })
@@ -77,7 +76,7 @@ def join_queue():
           properties:
             patient_id:
               type: string
-              example: "P-001"
+              example: "10000001"
     responses:
       201:
         description: Patient successfully added to the queue
@@ -157,7 +156,7 @@ def join_queue():
     queue_body = queue_res.json()
     queue_id = queue_body.get("queue_id")
     queue_position = queue_body.get("queue_position")
-    waiting_time = (queue_position or 0) // available_doctors_count * 10
+    waiting_time = queue_position-1 // available_doctors_count * 10
 
     return jsonify({
         "code": 201,

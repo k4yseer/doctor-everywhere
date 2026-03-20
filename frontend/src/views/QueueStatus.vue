@@ -202,6 +202,14 @@ onUnmounted(stopPolling)
           Join Consultation
         </button>
 
+        <button class="post-consult-btn" @click="router.push('/post-consult')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+            <path d="M9 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8z" />
+            <polyline points="17 2 17 8 11 8" />
+          </svg>
+          View Post-Consultation Summary
+        </button>
+
         <button class="leave-btn" @click="leaveQueue">Back to home</button>
       </div>
 
@@ -547,6 +555,30 @@ onUnmounted(stopPolling)
   &:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+}
+
+.post-consult-btn {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.85rem;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.18);
   }
 }
 

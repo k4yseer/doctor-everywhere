@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import LandingPage from '../views/LandingPage.vue'
 import QueueStatus from '../views/QueueStatus.vue'
+import PostConsultation from '../views/PostConsultation.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,6 +15,11 @@ const router = createRouter({
       path: '/queue',
       name: 'queue',
       component: QueueStatus,
+    },
+    {
+      path: '/post-consult',
+      name: 'post-consult',
+      component: PostConsultation,
     },
   ],
 })

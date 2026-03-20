@@ -16,7 +16,7 @@ SERVICE_NAME = "appointment"
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-APPOINTMENT_STATUSES = ("CONFIRMED", "PENDING_PAYMENT", "PAID")
+APPOINTMENT_STATUSES = ("CONFIRMED", "PENDING_PAYMENT", "PAID", "NO_SHOW")
 
 
 class Base(DeclarativeBase):

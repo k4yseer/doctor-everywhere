@@ -22,7 +22,8 @@ def head_of_queue(patient_email, meeting_link):
         "subject": "Doctor Everywhere Consultation Link",
         "html": f"""
             <p>Dear Patient,<p>
-            <p>Click here to join the consultation: {meeting_link}. Thank you for your patience.</p>
+            <p>Click here to join the consultation: {meeting_link}. Thank you for your patience. 
+            Do note that we reserve the right to cancel your appointment if you do not show up within 10 minutes.</p>
             <p>Warm regards, <br/><strong>Doctor Everywhere</strong></P>
         """,
         "text": "Please click the link to join the consultation.",
@@ -50,6 +51,23 @@ def send_mc(patient_email, appointment_id, file_bytes, filename):
             View your prescription and delivery details on the Doctor Everywhere app.
         """,
         "attachments": [attachment],
+    }
+    return resend.Emails.send(params)
+
+
+def no_show(patient_email, appointment_id):
+    params: resend.Emails.SendParams = {
+        "from": f"Doctor Everywhere <notifications@{domain}>",
+        "to": [patient_email],
+        "subject": f"Appointment #{appointment_id} — No-Show Recorded",
+        "html": f"""
+            <p>Dear Patient,</p>
+            <p>We noticed you did not join your consultation for Appointment <strong>#{appointment_id}</strong>.</p>
+            <p>Your appointment has been closed and <strong>you will not be charged</strong>.</p>
+            <p>If you still need to see a doctor, please visit Doctor Everywhere and join the queue again.</p>
+            <p>Warm regards, <br/><strong>Doctor Everywhere</strong></p>
+        """,
+        "text": f"Appointment #{appointment_id} closed. You will not be charged. Rejoin the queue anytime.",
     }
     return resend.Emails.send(params)
 

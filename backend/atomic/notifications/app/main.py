@@ -7,7 +7,7 @@ swagger = Swagger(app, template={
     "info": {
         "title": "Notifications Microservice API",
         "version": "1.0.0",
-        "description": "Send email notifications to patients to join the consultation, get payment details and MC"
+        "description": "Send email notifications to patients to join the consultation, handle no shows, get payment details and MC"
     }
 })
 
@@ -170,6 +170,82 @@ def send_mc():
             "code": 500,
             "message": str(e),
         }), 500
+
+@app.route("/notification/no-show", methods=['POST'])
+def no_show():
+    """
+    Notify patient of no-show
+    ---
+    description: Send an email to the patient when they are marked as a no-show, informing them they will not be charged.
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+              example: "patient@example.com"
+            appointment_id:
+              type: string
+              example: "42"
+    responses:
+      200:
+        description: Email sent successfully
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            id:
+              type: string
+      400:
+        description: Bad request (missing/invalid data)
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+    """
+    patient_email = request.json.get('email')
+    appointment_id = request.json.get('appointment_id')
+
+    if appointment_id is None or patient_email is None:
+        return jsonify({
+            "error": "Missing required fields"
+        }), 400
+
+    if not is_valid_email(patient_email):
+        return jsonify({
+            "error": "Invalid email"
+        }), 400
+
+    try:
+        r = emails.no_show(patient_email, appointment_id)
+        return jsonify({
+            "code": 200,
+            "message": "Email sent successfully",
+            "id": r["id"]
+        })
+    except Exception as e:
+        return jsonify({
+            "code": 500,
+            "message": str(e),
+        }), 500
+
 
 @app.route("/notification/payment-details", methods=['POST'])
 def payment_details():

@@ -156,7 +156,7 @@ def join_queue():
     queue_body = queue_res.json()
     queue_id = queue_body.get("queue_id")
     queue_position = queue_body.get("queue_position")
-    waiting_time = queue_position-1 // available_doctors_count * 10
+    waiting_time = (queue_position-1) // available_doctors_count * 10
 
     return jsonify({
         "code": 201,

@@ -275,6 +275,33 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # ── Consultation Setup Service ───────────────────────────────────────────
+  setup-consultation-service:
+    build:
+      context: ./composite/setup_consultation
+    ports:
+      - "5012:5012"
+    environment:
+      - QUEUE_SERVICE_URL=http://queue-service:5011
+      - TELECONFERENCING_URL=http://teleconferencing-wrapper:5006
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5002
+      - PATIENT_SERVICE_URL=http://patient-service:5003
+      - NOTIFICATION_SERVICE_URL=http://notification-service:5004
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      queue-service:
+        condition: service_started
+      appointment-service:
+        condition: service_started
+      patient-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      teleconferencing-wrapper:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   doctor_db_data:
   appointment_db_data:

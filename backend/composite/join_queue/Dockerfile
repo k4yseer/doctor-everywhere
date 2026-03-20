@@ -10,7 +10,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # expose port and start the service
-EXPOSE 5003
+EXPOSE 5010
 ENV FLASK_APP=app.main
 ENV PYTHONPATH=/usr/src/app
-CMD ["flask", "run", "--host=0.0.0.0",  "--port=5003"]
+CMD ["flask", "run", "--host=0.0.0.0",  "--port=5010"]

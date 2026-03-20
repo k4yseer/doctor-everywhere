@@ -1,0 +1,172 @@
+import os
+import requests
+from flask import Flask, jsonify, request
+from flasgger import Swagger
+from werkzeug.exceptions import HTTPException
+
+from app.error_publisher import publish_error as _publish_error
+
+app = Flask(__name__)
+swagger = Swagger(app, template={
+    "info": {
+        "title": "Join Queue Composite Service API",
+        "version": "1.0.0",
+        "description": (
+            "Orchestrates patient lookup, doctor availability, Zoom meeting creation, "
+            "appointment creation, and queue event publishing when a patient books a consultation."
+        )
+    }
+})
+
+DOCTOR_SERVICE_URL = os.getenv("DOCTOR_SERVICE_URL", "http://doctor-service:5001")
+QUEUE_SERVICE_URL = os.getenv("QUEUE_SERVICE_URL", "http://queue-service:5011")
+SERVICE_NAME = "join-queue"
+
+
+def error_response(status_code, message, error_code, payload=None):
+    if status_code >= 500:
+        _publish_error(source_service=SERVICE_NAME, error_code=error_code, error_message=message, payload=payload)
+    return jsonify({"code": status_code, "message": message}), status_code
+
+
+def _forward_error(res):
+    try:
+        body = res.json()
+    except Exception:
+        body = {}
+    code = body.get("code", res.status_code)
+    message = body.get("message", "Upstream service error")
+    return error_response(res.status_code, message, f"JOIN-QUEUE-{res.status_code}-UPSTREAM")
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    if isinstance(err, HTTPException):
+        return error_response(
+            err.code or 500,
+            err.description,
+            f"JOIN-QUEUE-{err.code or 500}-HTTP",
+            {"path": request.path, "method": request.method},
+        )
+    return error_response(
+        500,
+        "Internal server error",
+        "JOIN-QUEUE-500-UNHANDLED",
+        {"path": request.path, "method": request.method, "error": str(err)},
+    )
+
+
+@app.route("/join-queue", methods=["POST"])
+def join_queue():
+    """
+    Add a patient to the consultation queue.
+    ---
+    tags:
+      - Join Queue
+    summary: Add a patient to the consultation queue
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - patient_id
+          properties:
+            patient_id:
+              type: string
+              example: "P-001"
+    responses:
+      201:
+        description: Patient successfully added to the queue
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 201
+            queue_id:
+              type: integer
+              example: 1
+            queue_position:
+              type: integer
+              example: 3
+            waiting_time:
+              type: integer
+              description: Estimated waiting time in minutes
+              example: 30
+            status:
+              type: string
+              example: "CONFIRMED"
+      400:
+        description: Missing required field
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 400
+            message:
+              type: string
+              example: "patient_id is required"
+      503:
+        description: Upstream service unavailable or no doctors available
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 503
+            message:
+              type: string
+              example: "Doctor service unreachable"
+    """
+    data = request.get_json()
+    patient_id = data.get("patient_id") if data else None
+
+    if not patient_id:
+        return error_response(400, "patient_id is required", "JOIN-QUEUE-400-MISSING_FIELDS")
+
+    try:
+        doctors_res = requests.get(f"{DOCTOR_SERVICE_URL}/doctors", params={"status": "AVAILABLE"})
+    except requests.exceptions.RequestException:
+        return error_response(503, "Doctor service unreachable", "JOIN-QUEUE-503-DOCTOR_UNREACHABLE")
+
+    if not doctors_res.ok:
+        return _forward_error(doctors_res)
+
+    doctors = doctors_res.json().get("data", [])
+    available_doctors_count = len(doctors)
+
+    if available_doctors_count == 0:
+        return error_response(503, "No doctors available", "JOIN-QUEUE-503-NO_DOCTORS")
+
+    try:
+        queue_res = requests.post(
+            f"{QUEUE_SERVICE_URL}/queue",
+            json={"patient_id": patient_id},
+        )
+    except requests.exceptions.RequestException:
+        return error_response(503, "Queue service unreachable", "JOIN-QUEUE-503-QUEUE_UNREACHABLE")
+
+    if not queue_res.ok:
+        return _forward_error(queue_res)
+
+    queue_body = queue_res.json()
+    queue_id = queue_body.get("queue_id")
+    queue_position = queue_body.get("queue_position")
+    waiting_time = (queue_position or 0) // available_doctors_count * 10
+
+    return jsonify({
+        "code": 201,
+        "queue_id": queue_id,
+        "queue_position": queue_position,
+        "waiting_time": waiting_time,
+        "status": "CONFIRMED",
+    }), 201
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5010, debug=True)

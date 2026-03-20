@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     doctor_id     INT                                       NOT NULL,
     slot_datetime DATETIME                                  NOT NULL,
     meet_link     VARCHAR(512)                              NULL,
-    status        ENUM('CONFIRMED','PENDING_PAYMENT','PAID') NOT NULL DEFAULT 'CONFIRMED',
+    status        ENUM('CONFIRMED','PENDING_PAYMENT','PAID','NO_SHOW') NOT NULL DEFAULT 'CONFIRMED',
     PRIMARY KEY (id)
 );
 

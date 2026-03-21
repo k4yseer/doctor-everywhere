@@ -1,11 +1,3 @@
-# ── Kong Global Configuration ──────────────────────────────────────────────
-x-kong-config: &kong-env
-  KONG_DATABASE: postgres
-  KONG_PG_HOST: kong-database
-  KONG_PG_DATABASE: kong
-  KONG_PG_USER: kong
-  KONG_PG_PASSWORD: kong_secure_password
-
 services:
 
   # ── Doctor Service ────────────────────────────────────────────────────────
@@ -362,54 +354,32 @@ services:
       rabbitmq:
         condition: service_healthy
 
-# ── Kong Database (PostgreSQL) ─────────────────────────────────────────────
-  kong-database:
-    image: postgres:15
-    restart: always
-    environment:
-      POSTGRES_USER: kong
-      POSTGRES_DB: kong
-      POSTGRES_PASSWORD: kong_secure_password
-    volumes:
-      - kong_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "kong"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    ports:
-      - "5432:5432"
-
-  # ── Kong Migrations (Bootstraps the Database) ──────────────────────────────
-  kong-bootstrap:
-    image: kong:latest
-    environment:
-      <<: *kong-env
-    command: kong migrations bootstrap
-    depends_on:
-      kong-database:
-        condition: service_healthy
-
-  # ── Kong API Gateway + Kong Manager GUI ────────────────────────────────────
-  kong-gateway:
+  kong-dbless:
     image: kong:latest
     restart: always
     environment:
-      <<: *kong-env
+      # THE ONLY DATABASE SETTING YOU NEED:
+      KONG_DATABASE: "off"
+      
+      # Tell Kong to look at your shared YAML file instead of a DB
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      
+      # Standard networking settings
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002
+      KONG_ADMIN_GUI_URL: http://localhost:8002
+      
+      # Logging (Essential for debugging with your group)
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
-      KONG_ADMIN_ACCESS_LOG: /dev/stdout
-      KONG_ADMIN_ERROR_LOG: /dev/stderr
-      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
-      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002, 0.0.0.0:8445 ssl
-      KONG_ADMIN_GUI_URL: http://localhost:8002
     ports:
-      - "8000:8000"  # 1. The Proxy (Your frontend UI sends requests here)
-      - "8001:8001"  # 2. The Admin API (Used for automated scripts)
-      - "8002:8002"  # 3. Kong Manager (The Web GUI you open in your browser)
-    depends_on:
-      kong-bootstrap:
-        condition: service_completed_successfully
+      - "8000:8000" # Traffic from Frontend
+      - "8001:8001" # Admin API
+      - "8002:8002" # Kong Manager GUI (Read-Only)
+    volumes:
+      # This is the 'Source of Truth' that you commit to GitHub
+      - ./kong.yml:/usr/local/kong/declarative/kong.yml
 
 volumes:
   doctor_db_data:
@@ -420,4 +390,3 @@ volumes:
   error_db_data:
   inventory_db_data:
   queue_db_data:
-  kong_db_data:

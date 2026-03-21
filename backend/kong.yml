@@ -1,0 +1,49 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: setup-consultation-service
+    url: http://setup-consultation-service:5012
+    routes:
+      - name: setup-consultation-route
+        paths:
+          - /setup-consultation
+        strip_path: false
+
+  - name: join-queue-service
+    url: http://join-queue-service:5010
+    routes:
+      - name: join-queue-route
+        paths:
+          - /join-queue
+        strip_path: false
+        
+  - name: get-consultation-history-service
+    url: http://get-consultation-history-service:5013
+    routes:
+      - name: get-consultation-history-route
+        paths:
+          - ~/consultation-history/(.+)
+        strip_path: false
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - "*"             # Allows any frontend to call your API (Great for Dev)
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-Type
+        - Api-Key         # Add this if you plan to use API Keys later
+      exposed_headers:
+        - X-Auth-Token
+      credentials: true
+      max_age: 3600

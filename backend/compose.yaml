@@ -131,6 +131,36 @@ services:
       retries: 10
       start_period: 30s
 
+  # ── Delivery Service ─────────────────────────────────────────────────────
+  delivery-service:
+    build:
+      context: ./atomic/delivery
+    ports:
+      - "5014:5008"
+    environment:
+      - dbURL=mysql+pymysql://root:root@delivery-db:3306/delivery_db
+    depends_on:
+      delivery-db:
+        condition: service_healthy
+
+  delivery-db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: delivery_db
+    ports:
+      - "3314:3306"
+    volumes:
+      - delivery_db_data:/var/lib/mysql
+      - ./atomic/delivery/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-u", "root", "--password=root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   # ── Teleconferencing Wrapper Service ──────────────────────────────────────
   teleconferencing-wrapper:
     build:
@@ -302,11 +332,34 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # ── Get Consultation History Service ────────────────────────────────────
+  get-consultation-history-service:
+    build:
+      context: ./composite/get_consultation_history
+    ports:
+      - "5013:5013"
+    environment:
+      - appointmentURL=http://appointment-service:5002
+      - invoiceURL=http://invoice-service:5005
+      - deliveryURL=http://delivery-service:5008
+      - prescriptionURL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      appointment-service:
+        condition: service_started
+      invoice-service:
+        condition: service_started
+      delivery-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   doctor_db_data:
   appointment_db_data:
   patient_db_data:
   invoice_db_data:
+  delivery_db_data:
   error_db_data:
   inventory_db_data:
   queue_db_data:

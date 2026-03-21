@@ -30,7 +30,7 @@ plugins:
   - name: cors
     config:
       origins:
-        - "*"             # Allows any frontend to call your API (Great for Dev)
+        - "*"             
       methods:
         - GET
         - POST
@@ -42,7 +42,6 @@ plugins:
         - Accept-Version
         - Content-Length
         - Content-Type
-        - Api-Key         # Add this if you plan to use API Keys later
       exposed_headers:
         - X-Auth-Token
       credentials: true

@@ -358,19 +358,14 @@ services:
     image: kong:latest
     restart: always
     environment:
-      # THE ONLY DATABASE SETTING YOU NEED:
       KONG_DATABASE: "off"
-      
-      # Tell Kong to look at your shared YAML file instead of a DB
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
       
-      # Standard networking settings
       KONG_PROXY_LISTEN: 0.0.0.0:8000
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
       KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002
       KONG_ADMIN_GUI_URL: http://localhost:8002
       
-      # Logging (Essential for debugging with your group)
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
     ports:
@@ -378,7 +373,6 @@ services:
       - "8001:8001" # Admin API
       - "8002:8002" # Kong Manager GUI (Read-Only)
     volumes:
-      # This is the 'Source of Truth' that you commit to GitHub
       - ./kong.yml:/usr/local/kong/declarative/kong.yml
 
 volumes:

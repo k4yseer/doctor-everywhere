@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from os import environ
 <<<<<<< Updated upstream
+from time import sleep
 
 import pika
 =======
@@ -56,8 +57,22 @@ class Appointment(Base):
         }
 
 
-with app.app_context():
-    Base.metadata.create_all(bind=engine)
+def init_db(max_attempts=20, wait_seconds=1):
+    last_error = None
+    for _ in range(max_attempts):
+        try:
+            with app.app_context():
+                Base.metadata.create_all(bind=engine)
+            return
+        except Exception as err:
+            last_error = err
+            sleep(wait_seconds)
+
+    if last_error:
+        raise last_error
+
+
+init_db()
 
 
 def get_db():
@@ -107,6 +122,17 @@ def get_appointment(id):
         return error_response(404, "Appointment not found", "APPT-404-NOT_FOUND", {"appointment_id": id})
 
     return jsonify({"code": 200, "data": appointment.json()}), 200
+
+
+@app.route("/appointments/patient/<int:patient_id>", methods=["GET"])
+def get_appointments_by_patient(patient_id):
+    db = get_db()
+    appointments = db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
+    
+    return jsonify({
+        "code": 200,
+        "data": [appointment.json() for appointment in appointments]
+    }), 200
 
 
 @app.route("/appointments", methods=["POST"])

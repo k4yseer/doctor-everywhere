@@ -1,8 +1,12 @@
 import json
 from datetime import datetime
 from os import environ
+<<<<<<< Updated upstream
 
 import pika
+=======
+from time import sleep
+>>>>>>> Stashed changes
 from flask import Flask, g, jsonify, request
 from sqlalchemy import Column, DateTime, Enum, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -30,16 +34,24 @@ class Appointment(Base):
     patient_id = Column(Integer, nullable=False)
     doctor_id = Column(Integer, nullable=False)
     slot_datetime = Column(DateTime, nullable=False)
-    meet_link = Column(String(512), nullable=True)
+    start_url = Column(String(512), nullable=True)
+    join_url = Column(String(512), nullable=True)
     status = Column(Enum(*APPOINTMENT_STATUSES), nullable=False, default="CONFIRMED")
 
     def json(self):
+        slot = self.slot_datetime
+        try:
+            slot_val = slot.isoformat()
+        except Exception:
+            slot_val = str(slot) if slot is not None else None
+
         return {
             "id": self.id,
             "patient_id": self.patient_id,
             "doctor_id": self.doctor_id,
-            "slot_datetime": self.slot_datetime.isoformat(),
-            "meet_link": self.meet_link,
+            "slot_datetime": slot_val,
+            "start_url": self.start_url,
+            "join_url": self.join_url,
             "status": self.status,
         }
 
@@ -61,28 +73,7 @@ def close_db(exception=None):
         db.close()
 
 
-def publish_error(error_code, error_message, payload=None):
-    message = {
-        "source_service": SERVICE_NAME,
-        "error_code": error_code,
-        "error_message": error_message,
-        "payload": payload or {},
-    }
-
-    try:
-        connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-        channel = connection.channel()
-        channel.exchange_declare(exchange="topic_logs", exchange_type="topic", durable=True)
-        channel.basic_publish(
-            exchange="topic_logs",
-            routing_key=f"{SERVICE_NAME}.error",
-            body=json.dumps(message),
-            properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
-        )
-        connection.close()
-    except Exception:
-        # Error reporting should never break request handling.
-        pass
+from app.error_publisher import publish_error as publish_error
 
 
 def error_response(status_code, message, error_code, payload=None):
@@ -152,7 +143,8 @@ def create_appointment():
         patient_id=patient_id,
         doctor_id=doctor_id,
         slot_datetime=slot_dt,
-        meet_link=data.get("meet_link"),
+        start_url=data.get("start_url"),
+        join_url=data.get("join_url"),
         status="CONFIRMED",
     )
     db.add(appointment)

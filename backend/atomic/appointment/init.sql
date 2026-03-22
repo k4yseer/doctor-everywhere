@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS appointments (
     patient_id    INT                                       NOT NULL,
     doctor_id     INT                                       NOT NULL,
     slot_datetime DATETIME                                  NOT NULL,
-    meet_link     VARCHAR(512)                              NULL,
+    start_url     VARCHAR(512)                              NOT NULL,
+    join_url      VARCHAR(512)                              NOT NULL,
     status        ENUM('CONFIRMED','PENDING_PAYMENT','PAID','NO_SHOW') NOT NULL DEFAULT 'CONFIRMED',
     PRIMARY KEY (id)
 );
@@ -23,6 +24,6 @@ CREATE TABLE IF NOT EXISTS appointments (
 -- Seed data — 2 appointments for testing
 -- flow: CONFIRMED -> PENDING_PAYMENT (post-consult) -> PAID
 -- ------------------------------------------------------------
-INSERT INTO appointments (patient_id, doctor_id, slot_datetime, meet_link, status) VALUES
-    (1, 1, '2026-03-10 09:00:00', 'https://meet.example.com/abc-111', 'CONFIRMED'),
-    (2, 2, '2026-03-10 14:00:00', 'https://meet.example.com/xyz-222', 'PENDING_PAYMENT');
+INSERT INTO appointments (patient_id, doctor_id, slot_datetime, start_url, join_url, status) VALUES
+    (1, 1, '2026-03-10 09:00:00', 'https://meet.example.com/abc-111', 'https://meet.example.com/abc-111', 'CONFIRMED'),
+    (2, 2, '2026-03-10 14:00:00', 'https://meet.example.com/xyz-222', 'https://meet.example.com/xyz-222', 'PENDING_PAYMENT');

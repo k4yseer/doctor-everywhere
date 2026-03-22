@@ -54,28 +54,7 @@ def close_db(exception=None):
         db.close()
 
 
-def publish_error(error_code, error_message, payload=None):
-    message = {
-        "source_service": SERVICE_NAME,
-        "error_code": error_code,
-        "error_message": error_message,
-        "payload": payload or {},
-    }
-
-    try:
-        connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-        channel = connection.channel()
-        channel.exchange_declare(exchange="topic_logs", exchange_type="topic", durable=True)
-        channel.basic_publish(
-            exchange="topic_logs",
-            routing_key=f"{SERVICE_NAME}.error",
-            body=json.dumps(message),
-            properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
-        )
-        connection.close()
-    except Exception:
-        # Error reporting should never break request handling.
-        pass
+from app.error_publisher import publish_error as publish_error
 
 
 def error_response(status_code, message, error_code, payload=None):

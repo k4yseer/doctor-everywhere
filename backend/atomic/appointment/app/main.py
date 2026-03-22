@@ -1,13 +1,9 @@
 import json
 from datetime import datetime
 from os import environ
-<<<<<<< Updated upstream
 from time import sleep
 
 import pika
-=======
-from time import sleep
->>>>>>> Stashed changes
 from flask import Flask, g, jsonify, request
 from sqlalchemy import Column, DateTime, Enum, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker

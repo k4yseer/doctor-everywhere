@@ -6,7 +6,7 @@ from flasgger import Swagger
 from werkzeug.exceptions import HTTPException
 
 from app.error_publisher import publish_error as _publish_error
-from app import upstream
+from app import upstream, notification_publisher
 from app.upstream import UpstreamError
 
 SERVICE_NAME = "consultation-setup"

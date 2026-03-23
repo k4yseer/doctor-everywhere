@@ -1,330 +1,89 @@
-from flask import Flask, jsonify, request
-from flasgger import Swagger
+from flask import Flask
 from app import emails
+from app.error_publisher import publish_error
+import pika
+import json
+import os
+import threading
+import base64
+import time
+
+AMQP_URL = os.environ.get("AMQP_URL", "amqp://guest:guest@localhost:5672/")
+EXCHANGE_NAME = "notifications"
+QUEUE_NAME = "notification_queue"
+ROUTING_KEY = "notification.#"
 
 app = Flask(__name__)
-swagger = Swagger(app, template={
-    "info": {
-        "title": "Notifications Microservice API",
-        "version": "1.0.0",
-        "description": "Send email notifications to patients to join the consultation, handle no shows, get payment details and MC"
-    }
-})
 
-is_valid_email = emails.is_valid_email
 
-@app.route("/notification/head-of-queue", methods=['POST'])
-def head_of_queue():
-    """
-    Notify patient at head of queue
-    ---
-    description: Send an email to the patient when they reach the head of queue with a meeting link.
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            email:
-              type: string
-              format: email
-              example: "patient@example.com"
-            meeting_link:
-              type: string
-              example: "https://meet.example.com/abc123"
-    responses:
-      200:
-        description: Email sent successfully
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-            id:
-              type: string
-      400:
-        description: Bad request (missing/invalid data)
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-      500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-    """
-    patient_email = request.json.get('email')
-    meeting_link = request.json.get('meeting_link')
-
-    if meeting_link is None or patient_email is None:
-        return jsonify({
-            "error": "Missing required fields"
-        }), 400
-
-    if not is_valid_email(patient_email):
-        return jsonify({
-            "error": "Invalid email"
-        }), 400
-
+def process_notification_message(ch, method, properties, body):
     try:
-        r = emails.head_of_queue(patient_email, meeting_link)
-        return jsonify({
-            "code": 200,
-            "message": "Email sent successfully",
-            "id": r["id"]
-        })
+        data = json.loads(body)
+        notification_type = data.get("type")
+        email = data.get("email")
+
+        if notification_type == "head-of-queue":
+            meeting_link = data.get("meeting_link")
+            emails.head_of_queue(email, meeting_link)
+        elif notification_type == "no-show":
+            appointment_id = data.get("appointment_id")
+            emails.no_show(email, appointment_id)
+        elif notification_type == "payment-details":
+            appointment_id = data.get("appointment_id")
+            is_successful = data.get("is_successful")
+            emails.payment_details(email, appointment_id, is_successful)
+        elif notification_type == "send-mc":
+            appointment_id = data.get("appointment_id")
+            filename = data.get("filename")
+            file_bytes = base64.b64decode(data.get("file_content"))
+            emails.send_mc(email, appointment_id, file_bytes, filename)
+        else:
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+            return
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
     except Exception as e:
-        return jsonify({
-            "code": 500,
-            "message": str(e),
-        }), 500
-
-@app.route("/notification/send-mc", methods=['POST'])
-def send_mc():
-    """
-    Send medical certificate to patient via email
-    ---
-    consumes:
-      - multipart/form-data
-    parameters:
-      - name: email
-        in: formData
-        type: string
-        format: email
-        required: true
-        example: "patient@example.com"
-      - name: appointment_id
-        in: formData
-        type: string
-        required: true
-        example: "abc123"
-      - name: file
-        in: formData
-        type: file
-        required: true
-        description: "PDF or image of medical certificate"
-    responses:
-      200:
-        description: Email sent successfully
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-            id:
-              type: string
-      400:
-        description: Bad request (missing/invalid data)
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-      500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-    """
-    patient_email = request.form.get('email')
-    appointment_id = request.form.get('appointment_id')
-    mc = request.files.get("file")
-    
-    if appointment_id is None or mc is None or patient_email is None:
-        return jsonify({
-            "error": "Missing required fields"
-        }), 400
-
-    if not is_valid_email(patient_email):
-        return jsonify({
-            "error": "Invalid email"
-        }), 400
-
-    file_bytes = mc.read()
-    filename = mc.filename
-
-    try:
-        r = emails.send_mc(patient_email, appointment_id, file_bytes, filename)
-        return jsonify({
-            "code": 200,
-            "message": "Email sent successfully",
-            "id": r["id"]
-        })
-    except Exception as e:
-        return jsonify({
-            "code": 500,
-            "message": str(e),
-        }), 500
-
-@app.route("/notification/no-show", methods=['POST'])
-def no_show():
-    """
-    Notify patient of no-show
-    ---
-    description: Send an email to the patient when they are marked as a no-show, informing them they will not be charged.
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            email:
-              type: string
-              format: email
-              example: "patient@example.com"
-            appointment_id:
-              type: string
-              example: "42"
-    responses:
-      200:
-        description: Email sent successfully
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-            id:
-              type: string
-      400:
-        description: Bad request (missing/invalid data)
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-      500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-    """
-    patient_email = request.json.get('email')
-    appointment_id = request.json.get('appointment_id')
-
-    if appointment_id is None or patient_email is None:
-        return jsonify({
-            "error": "Missing required fields"
-        }), 400
-
-    if not is_valid_email(patient_email):
-        return jsonify({
-            "error": "Invalid email"
-        }), 400
-
-    try:
-        r = emails.no_show(patient_email, appointment_id)
-        return jsonify({
-            "code": 200,
-            "message": "Email sent successfully",
-            "id": r["id"]
-        })
-    except Exception as e:
-        return jsonify({
-            "code": 500,
-            "message": str(e),
-        }), 500
+        publish_error(
+            source_service="notification",
+            error_code="NOTIF-500",
+            error_message=f"Failed to process notification message: {e}",
+            payload={"body": body.decode("utf-8", errors="replace")}
+        )
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
-@app.route("/notification/payment-details", methods=['POST'])
-def payment_details():
-    """
-    Notify patient of payment status
-    ---
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            email:
-              type: string
-              format: email
-              example: "patient@example.com"
-            appointment_id:
-              type: string
-              example: "abc123"
-            is_successful:
-              type: boolean
-              example: true
-    responses:
-      200:
-        description: Email sent successfully
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-            id:
-              type: string
-      400:
-        description: Bad request (missing/invalid data)
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-      500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-            message:
-              type: string
-    """
-    patient_email = request.json.get('email')
-    appointment_id = request.json.get('appointment_id')
-    is_successful = request.json.get('is_successful')
+def start_amqp_consumer():
+    delay = 5
+    while True:
+        try:
+            connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
+            channel = connection.channel()
 
-    if appointment_id is None or is_successful is None or patient_email is None:
-        return jsonify({
-            "error": "Missing required fields"
-        }), 400
+            channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
 
-    if not is_valid_email(patient_email):
-        return jsonify({
-            "error": "Invalid email"
-        }), 400
+            result = channel.queue_declare(queue=QUEUE_NAME, durable=True)
+            queue_name = result.method.queue
 
-    try:
-        r = emails.payment_details(patient_email, appointment_id, is_successful)
-        return jsonify({
-            "code": 200,
-            "message": "Email sent successfully",
-            "id": r["id"]
-        })
-    except Exception as e:
-        return jsonify({
-            "code": 500,
-            "message": str(e),
-        }), 500
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=ROUTING_KEY)
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue=queue_name, on_message_callback=process_notification_message)
 
+            print("[*] Waiting for messages.")
+            delay = 5  # reset backoff on successful connection
+            channel.start_consuming()
+
+        except Exception as e:
+            publish_error(
+                source_service="notification",
+                error_code="NOTIF-503",
+                error_message=f"AMQP connection failed: {e}",
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+
+
+t = threading.Thread(target=start_amqp_consumer, daemon=True)
+t.start()
 
 if __name__ == "__main__":
-    app.run(port=5004, debug=True)
+    app.run(host="0.0.0.0", port=5004, debug=False)

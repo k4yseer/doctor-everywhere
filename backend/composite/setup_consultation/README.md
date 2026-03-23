@@ -13,7 +13,7 @@ POST /next-patient
   ├─► (optional) GET /appointments/:id          (Appointment Service :5002)
   ├─► (optional) GET /patient/:id/details       (Patient Service :5003)
   ├─► (optional) PUT /appointments/:id/status   (Appointment Service :5002)  ← mark NO_SHOW
-  ├─► (optional) POST /notification/no-show     (Notification Service :5004)
+  ├─► (optional) AMQP publish notification.no-show        (RabbitMQ → notification_queue)
   │
   ├─► DELETE /queue/head                        (Queue Service :5011)
   │
@@ -23,7 +23,7 @@ POST /next-patient
   │
   ├─► GET /patient/:id/details                  (Patient Service :5003)
   │
-  └─► POST /notification/head-of-queue          (Notification Service :5004)
+  └─► AMQP publish notification.head-of-queue             (RabbitMQ → notification_queue)
         │
         ▼
     200 { code, patient, appointment_id, meet_link }
@@ -79,7 +79,6 @@ Interactive Swagger docs are available at `http://localhost:5012/apidocs`.
 | `TELECONFERENCING_URL`     | `http://teleconferencing-wrapper:5006`     | Base URL of Teleconferencing Wrapper  |
 | `APPOINTMENT_SERVICE_URL`  | `http://appointment-service:5002`          | Base URL of Appointment Service       |
 | `PATIENT_SERVICE_URL`      | `http://patient-service:5003`              | Base URL of Patient Service           |
-| `NOTIFICATION_SERVICE_URL` | `http://notification-service:5004`         | Base URL of Notification Service      |
 | `AMQP_URL`                 | `amqp://guest:guest@localhost:5672/`       | RabbitMQ connection URL               |
 
 ## Running with Docker
@@ -91,7 +90,6 @@ docker run -p 5012:5012 \
   -e TELECONFERENCING_URL=http://teleconferencing-wrapper:5006 \
   -e APPOINTMENT_SERVICE_URL=http://appointment-service:5002 \
   -e PATIENT_SERVICE_URL=http://patient-service:5003 \
-  -e NOTIFICATION_SERVICE_URL=http://notification-service:5004 \
   -e AMQP_URL=amqp://guest:guest@rabbitmq:5672/ \
   consultation-setup
 ```
@@ -110,4 +108,4 @@ FLASK_APP=app.main flask run --host=0.0.0.0 --port=5012
 | Flask      | 3.1.3    | Web framework                   |
 | flasgger   | 0.9.7.1  | Swagger UI / OpenAPI docs       |
 | requests   | 2.32.5   | HTTP calls to upstream services |
-| pika       | 1.3.2    | RabbitMQ error publishing       |
+| pika       | 1.3.2    | RabbitMQ error and notification publishing |

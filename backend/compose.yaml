@@ -377,6 +377,22 @@ services:
     volumes:
       - ./kong.yml:/usr/local/kong/declarative/kong.yml
 
+  # ── Make Prescription Composite ───────────────────────────────────────────
+  make-prescription:
+    build:
+      context: ./composite/make_prescription
+    ports:
+      - "5015:5015"
+    environment:
+      - PATIENT_SERVICE_URL=http://patient-service:5003
+      - INVENTORY_SERVICE_URL=http://inventory-service:5009
+      - PRESCRIPTION_SERVICE_URL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAP
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      - patient-service
+      - inventory-service
+      - rabbitmq
+
 volumes:
   doctor_db_data:
   appointment_db_data:

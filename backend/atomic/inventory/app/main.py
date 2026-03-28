@@ -1,8 +1,11 @@
 from flask import Flask, request, jsonify, g
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Numeric
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from werkzeug.exceptions import HTTPException
 from flasgger import Swagger, swag_from
 from os import environ, path
+
+from app.error_publisher import publish_error as _publish_error
 
 app = Flask(__name__)
 
@@ -93,6 +96,37 @@ def close_db(exception=None):
         db.close()
 
 
+def _error_response(status_code, message, error_code, payload=None, publish=False):
+    if publish:
+        _publish_error(
+            source_service="inventory_service",
+            error_code=error_code,
+            error_message=message,
+            payload=payload or {},
+        )
+    return jsonify({"error": message}), status_code
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    if isinstance(err, HTTPException):
+        return _error_response(
+            err.code or 500,
+            err.description,
+            f"INVENTORY-{err.code or 500}-HTTP",
+            {"path": request.path, "method": request.method},
+            publish=False,
+        )
+
+    return _error_response(
+        500,
+        "Internal server error",
+        "INVENTORY-500-UNHANDLED",
+        {"path": request.path, "method": request.method, "error": str(err)},
+        publish=True,
+    )
+
+
 # ── Reserve Medicine ────────────────────────────────────────────────────────
 @app.route("/inventory/medicines/", methods=["GET"])
 @swag_from(path.join(SWAGGER_DIR, "get_medicines.yml"))
@@ -181,7 +215,19 @@ def reserve_medicine():
     except Exception:
         db.rollback()
         app.logger.exception("reserve_medicine failed")
-        return jsonify({"error": "Internal server error"}), 500
+        return _error_response(
+            500,
+            "Internal server error",
+            "INVENTORY-500-RESERVE_FAILED",
+            {
+                "path": request.path,
+                "method": request.method,
+                "medicine_code": medicine_code,
+                "appointment_id": appointment_id,
+                "amount": amount,
+            },
+            publish=True,
+        )
     
 
 # ── Fulfill Reserved Order ──────────────────────────────────────────────────
@@ -219,7 +265,17 @@ def fulfill_reservation(appointment_id):
         }), 200
     except Exception:
         db.rollback()
-        return jsonify({"error": "Internal server error"}), 500
+        return _error_response(
+            500,
+            "Internal server error",
+            "INVENTORY-500-FULFILL_FAILED",
+            {
+                "path": request.path,
+                "method": request.method,
+                "appointment_id": appointment_id,
+            },
+            publish=True,
+        )
 
 
 if __name__ == "__main__":

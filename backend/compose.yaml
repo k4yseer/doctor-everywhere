@@ -228,8 +228,11 @@ services:
       - "5009:5009"
     environment:
       - dbURL=mysql+pymysql://root:root@inventory-db:3306/inventory_db
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
       inventory-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   inventory-db:

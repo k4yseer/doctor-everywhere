@@ -147,6 +147,8 @@ def create_meeting():
               type: integer
             join_url:
               type: string
+            start_url:
+              type: string
             password:
               type: string
             start_time:
@@ -201,6 +203,7 @@ def create_meeting():
             "success":    True,
             "meeting_id": meeting["id"],
             "join_url":   meeting["join_url"],
+            "start_url":  meeting["start_url"],
             "password":   meeting.get("password", ""),
             "start_time": meeting.get("start_time"),
             "duration":   meeting.get("duration"),

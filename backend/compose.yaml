@@ -260,9 +260,9 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
+      timeout: 15s
+      retries: 15
+      start_period: 120s
   # ── Queue Service ─────────────────────────────────────────────────────────
   queue-service:
     build:
@@ -386,12 +386,46 @@ services:
     environment:
       - PATIENT_SERVICE_URL=http://patient-service:5003
       - INVENTORY_SERVICE_URL=http://inventory-service:5009
-      - PRESCRIPTION_SERVICE_URL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAP
+      - PRESCRIPTION_SERVICE_URL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI
       - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
+      - EXCHANGE_NAME=topic_logs
     depends_on:
-      - patient-service
-      - inventory-service
-      - rabbitmq
+      patient-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+  # ── Prometheus (Time-Series Database) ────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      # Mount the config file you just created
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml 
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    depends_on:
+      - kong-dbless
+
+  # ── Grafana (Data Visualization Dashboard) ───────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    volumes:
+      # Mounts BOTH the datasources and dashboards config files
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      # Mounts the actual JSON dashboard file
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
 
 volumes:
   doctor_db_data:

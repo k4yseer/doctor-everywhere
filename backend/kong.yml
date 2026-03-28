@@ -33,6 +33,14 @@ services:
         paths:
           - /make-prescription
         strip_path: false
+  
+  - name: rabbitmq-native-api
+    url: http://rabbitmq:15672
+    routes:
+      - name: outsystems-rabbitmq-route
+        paths:
+          - /api/webhook/rabbitmq
+        strip_path: true
 
 plugins:
   - name: cors

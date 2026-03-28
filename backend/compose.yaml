@@ -111,7 +111,7 @@ services:
     build:
       context: ./atomic/invoice
     ports:
-      - "5008:5005"
+      - "5008:5008"
     environment:
       - dbURL=mysql+pymysql://root:root@invoice-db:3306/invoice_db
     depends_on:
@@ -141,7 +141,7 @@ services:
     build:
       context: ./atomic/delivery
     ports:
-      - "5014:5008"
+      - "5014:5014"
     environment:
       - dbURL=mysql+pymysql://root:root@delivery-db:3306/delivery_db
     depends_on:
@@ -345,7 +345,7 @@ services:
       - "5013:5013"
     environment:
       - appointmentURL=http://appointment-service:5002
-      - invoiceURL=http://invoice-service:5005
+      - invoiceURL=http://invoice-service:5008
       - deliveryURL=http://delivery-service:5008
       - prescriptionURL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI
       - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
@@ -445,6 +445,27 @@ services:
       - "--domain=hyacinth-brightish-adversatively.ngrok-free.dev"
     depends_on:
       - kong-dbless
+
+  # ── Make Payment Composite ────────────────────────────────────────────────
+  make-payment:
+    build:
+      context: ./composite/make_payment
+    ports:
+      - "5016:5016"
+    environment:
+      - STRIPE_WRAPPER_URL=http://payment-wrapper:5005
+      - INVOICE_SERVICE_URL=http://invoice-service:5008
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5002
+      - DELIVERY_SERVICE_URL=http://delivery-service:5008
+      - INVENTORY_SERVICE_URL=http://inventory-service:5009
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      - payment-wrapper
+      - invoice-service
+      - appointment-service
+      - delivery-service
+      - inventory-service
+      - rabbitmq
 
 volumes:
   doctor_db_data:

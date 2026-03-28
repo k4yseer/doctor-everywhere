@@ -76,8 +76,8 @@ def _create_zoom_meeting(access_token: str, topic: str, start_time: str,
 
 # ── AMQP error publisher ──────────────────────────────────────────────────────
 
-def _publish_error(error_payload: dict) -> None:
-    """Best-effort publish of a TELECONFERENCING_ERROR event to the broker."""
+def _publish_error(error_code: str, error_message: str, payload: dict = None) -> None:
+    """Best-effort publish of a teleconferencing.error event to the broker."""
     try:
         params = pika.URLParameters(RABBITMQ_URL)
         conn   = pika.BlockingConnection(params)
@@ -86,7 +86,12 @@ def _publish_error(error_payload: dict) -> None:
         ch.basic_publish(
             exchange="topic_logs",
             routing_key="teleconferencing.error",
-            body=json.dumps(error_payload),
+            body=json.dumps({
+                "source_service": "teleconferencing-wrapper",
+                "error_code":     error_code,
+                "error_message":  error_message,
+                "payload":        payload,
+            }),
             properties=pika.BasicProperties(
                 delivery_mode=2,        # persistent
                 content_type="application/json",
@@ -212,20 +217,20 @@ def create_meeting():
 
     except requests.HTTPError as e:
         error_msg = f"Zoom API error: {e.response.status_code} {e.response.text}"
-        _publish_error({
-            "source":  "teleconferencing-wrapper",
-            "error":   error_msg,
-            "context": {"topic": topic, "start_time": start_time},
-        })
+        _publish_error(
+            error_code="ZOOM-500",
+            error_message=error_msg,
+            payload={"topic": topic, "start_time": start_time},
+        )
         return jsonify({"success": False, "error": error_msg}), 500
 
     except Exception as e:
         error_msg = str(e)
-        _publish_error({
-            "source":  "teleconferencing-wrapper",
-            "error":   error_msg,
-            "context": {"topic": topic, "start_time": start_time},
-        })
+        _publish_error(
+            error_code="ZOOM-500",
+            error_message=error_msg,
+            payload={"topic": topic, "start_time": start_time},
+        )
         return jsonify({"success": False, "error": "Failed to create Zoom meeting."}), 500
 
 

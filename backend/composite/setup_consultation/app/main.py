@@ -143,10 +143,12 @@ def next_patient():
         f_dequeue = executor.submit(upstream.dequeue_patient)
         f_zoom = executor.submit(upstream.create_zoom_meeting)
         patient_id = f_dequeue.result()
-        join_url = f_zoom.result()
+        zoom_urls = f_zoom.result()
+        join_url = zoom_urls["join_url"]
+        start_url = zoom_urls["start_url"]
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        f_appt = executor.submit(upstream.create_appointment, patient_id, doctor_id, join_url)
+        f_appt = executor.submit(upstream.create_appointment, patient_id, doctor_id, join_url, start_url)
         f_patient = executor.submit(upstream.get_patient_details, patient_id)
         appointment_id = f_appt.result()
         patient_data = f_patient.result()
@@ -158,6 +160,7 @@ def next_patient():
         "patient": patient_data,
         "appointment_id": appointment_id,
         "meet_link": join_url,
+        "start_url": start_url,
     }), 200
 
 

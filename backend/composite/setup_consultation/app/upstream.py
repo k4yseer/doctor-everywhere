@@ -1,12 +1,12 @@
 import os
 import requests
 from datetime import datetime, timezone
+from app import notification_publisher
 
 QUEUE_SERVICE_URL = os.getenv("QUEUE_SERVICE_URL", "http://queue-service:5011")
 TELECONFERENCING_URL = os.getenv("TELECONFERENCING_URL", "http://teleconferencing-wrapper:5006")
 APPOINTMENT_SERVICE_URL = os.getenv("APPOINTMENT_SERVICE_URL", "http://appointment-service:5002")
 PATIENT_SERVICE_URL = os.getenv("PATIENT_SERVICE_URL", "http://patient-service:5003")
-NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://notification-service:5004")
 
 
 class UpstreamError(Exception):
@@ -56,15 +56,7 @@ def handle_no_show(appointment_id):
     if not res.ok:
         _raise_for_status(res)
 
-    try:
-        res = requests.post(
-            f"{NOTIFICATION_SERVICE_URL}/notification/no-show",
-            json={"email": email, "appointment_id": appointment_id},
-        )
-    except requests.exceptions.RequestException:
-        _raise_for_connection("Notification service", "CONSULT-503-NOTIF_UNREACHABLE")
-    if not res.ok:
-        _raise_for_status(res)
+    notification_publisher.publish_notification("no-show", {"email": email, "appointment_id": appointment_id})
 
 
 def dequeue_patient():
@@ -123,12 +115,4 @@ def get_patient_details(patient_id):
 
 
 def notify_head_of_queue(email, meeting_link):
-    try:
-        res = requests.post(
-            f"{NOTIFICATION_SERVICE_URL}/notification/head-of-queue",
-            json={"email": email, "meeting_link": meeting_link},
-        )
-    except requests.exceptions.RequestException:
-        _raise_for_connection("Notification service", "CONSULT-503-NOTIF_UNREACHABLE")
-    if not res.ok:
-        _raise_for_status(res)
+    notification_publisher.publish_notification("head-of-queue", {"email": email, "meeting_link": meeting_link})

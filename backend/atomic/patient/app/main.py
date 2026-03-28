@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify, g
 from flasgger import Swagger
 from sqlalchemy import select
+from werkzeug.exceptions import HTTPException
 from app.models import Patient, Allergies
 from app.database import engine, SessionLocal
 from app import models, seed
+from app.error_publisher import publish_error
 
 app = Flask(__name__)
 swagger = Swagger(app, template={
@@ -31,6 +33,31 @@ def close_db(exception=None):
     db = g.pop('db', None)
     if db is not None:
         db.close()
+
+def error_response(status_code, message, error_code, payload=None):
+    publish_error(
+        source_service="patient_service",
+        error_code=error_code,
+        error_message=message,
+        payload=payload
+    )
+    return jsonify({"code": status_code, "message": message}), status_code
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    if isinstance(err, HTTPException):
+        return error_response(
+            err.code or 500,
+            err.description,
+            f"PATIENT-{err.code or 500}-HTTP",
+            {"path": request.path, "method": request.method},
+        )
+    return error_response(
+        500,
+        "Internal server error",
+        "PATIENT-500-UNHANDLED",
+        {"path": request.path, "method": request.method, "error": str(err)},
+    )
 
 @app.route("/patient/check-allergies", methods=['POST'])
 def check_allergies():
@@ -77,12 +104,8 @@ def check_allergies():
     )
 
     if not patient:
-      return jsonify(
-        {
-            "code": 404,
-            "message": "Patient not found"
-        }
-      ), 404
+        return error_response(404, "Patient not found", "PATIENT-404-NOT_FOUND",
+                              {"patient_id": patient_id})
 
     prescription_list = request.json.get('prescription', [])
 
@@ -161,12 +184,8 @@ def find_by_id(patient_id):
                 "data": patient.json()
             }
         )
-    return jsonify(
-        {
-            "code": 404,
-            "message": "Patient not found."
-        }
-    ), 404
+    return error_response(404, "Patient not found.", "PATIENT-404-NOT_FOUND",
+                          {"patient_id": patient_id})
 
 if __name__ == '__main__':
     app.run(port=5003, debug=True)

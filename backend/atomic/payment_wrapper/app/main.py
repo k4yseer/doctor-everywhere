@@ -1,5 +1,7 @@
 import os
+import json
 import stripe
+import pika
 from flask import Flask, request, jsonify
 from flasgger import Swagger
 
@@ -13,6 +15,35 @@ swagger = Swagger(app, template={
 })
 
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
+RABBITMQ_URL   = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+
+
+# ── AMQP error publisher ──────────────────────────────────────────────────────
+
+def _publish_error(error_code: str, error_message: str, payload: dict = None) -> None:
+    """Best-effort publish of a payment.error event to the broker."""
+    try:
+        params = pika.URLParameters(RABBITMQ_URL)
+        conn   = pika.BlockingConnection(params)
+        ch     = conn.channel()
+        ch.exchange_declare(exchange="topic_logs", exchange_type="topic", durable=True)
+        ch.basic_publish(
+            exchange="topic_logs",
+            routing_key="payment.error",
+            body=json.dumps({
+                "source_service": "payment-wrapper",
+                "error_code":     error_code,
+                "error_message":  error_message,
+                "payload":        payload,
+            }),
+            properties=pika.BasicProperties(
+                delivery_mode=2,        # persistent
+                content_type="application/json",
+            ),
+        )
+        conn.close()
+    except Exception:
+        pass    # never let broker unavailability crash the HTTP response
 
 @app.route('/api/wrapper/stripe/charge', methods=['POST'])
 def create_charge():
@@ -126,6 +157,11 @@ def create_charge():
                 "status": intent.status
             }), 200
         else:
+            _publish_error(
+                error_code="PAYMENT-402",
+                error_message=f"Payment not completed. Stripe status: {intent.status}",
+                payload={"amount": amount, "currency": currency, "stripe_status": intent.status},
+            )
             return jsonify({
                 "success": False,
                 "transactionId": intent.id,
@@ -134,6 +170,11 @@ def create_charge():
             }), 402
 
     except stripe.error.CardError as e:
+        _publish_error(
+            error_code="PAYMENT-402",
+            error_message=e.user_message,
+            payload={"amount": amount, "currency": currency},
+        )
         return jsonify({
             "success": False,
             "error": e.user_message,
@@ -141,12 +182,22 @@ def create_charge():
         }), 402
 
     except stripe.error.StripeError as e:
+        _publish_error(
+            error_code="STRIPE-500",
+            error_message=str(e),
+            payload={"amount": amount, "currency": currency},
+        )
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
 
     except Exception:
+        _publish_error(
+            error_code="PAYMENT-500",
+            error_message="Payment processing failed at the gateway.",
+            payload={"amount": amount, "currency": currency},
+        )
         return jsonify({
             "success": False,
             "error": "Payment processing failed at the gateway."

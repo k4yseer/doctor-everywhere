@@ -16,7 +16,7 @@ Swagger(app)  # Swagger UI available at /apidocs
 
 # ─── Database Setup (plain SQLAlchemy, matching group style) ───────────────────
 DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "mysql+pymysql://root:root@localhost:3306/error_db"
+    "dbURL", "mysql+pymysql://root:root@localhost:3306/error_db"
 )
 
 engine = create_engine(DATABASE_URL)

@@ -6,7 +6,7 @@ import pika
 import json
 import os
 
-from app.error_publisher import publish_error as _publish_error
+from error_publisher import publish_error as _publish_error
 
 app = Flask(__name__)
 CORS(app)
@@ -17,7 +17,7 @@ PATIENT_SERVICE_URL    = os.environ.get("PATIENT_SERVICE_URL",    "http://patien
 INVENTORY_SERVICE_URL  = os.environ.get("INVENTORY_SERVICE_URL",  "http://inventory-service:5009")
 PRESCRIPTION_SERVICE_URL = os.environ.get(
     "PRESCRIPTION_SERVICE_URL", 
-    "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAP")
+    "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI")
 
 # ─── AMQP Config ───────────────────────────────────────────────────────────────
 AMQP_URL      = os.environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")

@@ -33,6 +33,14 @@ services:
         paths:
           - /make-prescription
         strip_path: false
+  
+  - name: rabbitmq-native-api
+    url: http://rabbitmq:15672
+    routes:
+      - name: outsystems-rabbitmq-route
+        paths:
+          - /api/webhook/rabbitmq
+        strip_path: true
 
 plugins:
   - name: cors
@@ -54,3 +62,9 @@ plugins:
         - X-Auth-Token
       credentials: true
       max_age: 3600
+  - name: prometheus
+    config:
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true

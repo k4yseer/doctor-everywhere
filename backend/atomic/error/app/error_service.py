@@ -8,6 +8,7 @@ import json
 import uuid
 import os
 import threading
+import time
 from datetime import datetime
 
 app = Flask(__name__)
@@ -107,25 +108,41 @@ def process_error_message(ch, method, properties, body):
 
 
 def start_amqp_consumer():
-    """Start RabbitMQ consumer in a background daemon thread."""
-    try:
-        connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-        channel    = connection.channel()
+    """Start RabbitMQ consumer in a background daemon thread with retry/backoff."""
+    retry_delay_seconds = 2
+    max_retry_delay_seconds = 30
 
-        channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
+    while True:
+        connection = None
+        try:
+            connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
+            channel = connection.channel()
 
-        result     = channel.queue_declare(queue="error_queue", durable=True)
-        queue_name = result.method.queue
+            channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
 
-        channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=ROUTING_KEY)
-        channel.basic_qos(prefetch_count=1)
-        channel.basic_consume(queue=queue_name, on_message_callback=process_error_message)
+            result = channel.queue_declare(queue="error_queue", durable=True)
+            queue_name = result.method.queue
 
-        print(f"[ERROR SERVICE] Listening on exchange '{EXCHANGE_NAME}' | routing key '{ROUTING_KEY}'")
-        channel.start_consuming()
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=ROUTING_KEY)
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue=queue_name, on_message_callback=process_error_message)
 
-    except Exception as e:
-        print(f"[ERROR SERVICE] AMQP connection failed: {e}")
+            print(f"[ERROR SERVICE] Listening on exchange '{EXCHANGE_NAME}' | routing key '{ROUTING_KEY}'")
+            # Reset retry delay after a successful setup.
+            retry_delay_seconds = 2
+            channel.start_consuming()
+
+        except Exception as e:
+            print(f"[ERROR SERVICE] AMQP connection/consumer failed: {e}. Retrying in {retry_delay_seconds}s...")
+            time.sleep(retry_delay_seconds)
+            retry_delay_seconds = min(max_retry_delay_seconds, retry_delay_seconds * 2)
+
+        finally:
+            try:
+                if connection and connection.is_open:
+                    connection.close()
+            except Exception:
+                pass
 
 
 # ─── REST Endpoints ────────────────────────────────────────────────────────────

@@ -15,14 +15,14 @@ def seed_database():
             patient_name="John Doe",
             address="123 Main St",
             contact_number="93456789",
-            email="john@example.com",
+            email="k4yseer@gmail.com",
         ),
         Patient(
             patient_id="10000002",
             patient_name="Jane Smith",
             address="456 Oak Ave",
             contact_number="98765432",
-            email="jane@example.com",
+            email="k4yseer@gmail.com",
         ),
     ]
     session.add_all(patients)

@@ -1,7 +1,10 @@
 import os
+from typing import Optional
 
 import requests
+import strawberry
 from flask import Flask, jsonify, request
+from strawberry.flask.views import GraphQLView
 from werkzeug.exceptions import HTTPException
 
 from app.error_publisher import publish_error as _publish_error
@@ -199,54 +202,201 @@ def _extract_delivery_status(appointment_id, patient_id, invoice_id):
     return "Pending"
 
 
-@app.route("/consultation-history/<int:patient_id>", methods=["GET"])
-def get_consultation_history(patient_id):
-    # Step 1: Required appointment endpoint from spec.
-    appointment_res = _safe_get(f"{APPOINTMENT_URL}/appointments/patient/{patient_id}")
+# Legacy REST rollback reference (disabled).
+# @app.route("/consultation-history/<int:patient_id>", methods=["GET"])
+# def get_consultation_history(patient_id):
+#     # Step 1: Required appointment endpoint from spec.
+#     appointment_res = _safe_get(f"{APPOINTMENT_URL}/appointments/patient/{patient_id}")
+#
+#     # Step 2: On error/404, safely return empty list with 200.
+#     if not appointment_res or appointment_res.status_code == 404 or appointment_res.status_code >= 400:
+#         return jsonify([]), 200
+#
+#     try:
+#         appt_payload = _extract_data(appointment_res.json())
+#     except ValueError:
+#         return jsonify([]), 200
+#
+#     appointments = appt_payload if isinstance(appt_payload, list) else []
+#     history_list = []
+#
+#     # Step 4 + 5 + 6
+#     for appt in appointments:
+#         if not isinstance(appt, dict):
+#             continue
+#
+#         appointment_id = appt.get("appointment_id", appt.get("id"))
+#         if appointment_id is None:
+#             continue
+#
+#         appt_date = appt.get("date") or appt.get("slot_datetime")
+#         appt_status = _friendly_status(appt.get("status"))
+#         appt_patient_id = appt.get("patient_id", patient_id)
+#
+#         mc, prescriptions = _extract_prescription_block(appointment_id)
+#         billing, invoice_id = _extract_invoice_block(appointment_id)
+#         billing["delivery_status"] = _extract_delivery_status(appointment_id, appt_patient_id, invoice_id)
+#
+#         history_list.append(
+#             {
+#                 "appointment_id": appointment_id,
+#                 "date": appt_date,
+#                 "status": appt_status,
+#                 "mc": mc,
+#                 "prescriptions": prescriptions,
+#                 "billing": billing,
+#             }
+#         )
+#
+#     return jsonify(history_list), 200
 
-    # Step 2: On error/404, safely return empty list with 200.
-    if not appointment_res or appointment_res.status_code == 404 or appointment_res.status_code >= 400:
-        return jsonify([]), 200
 
-    try:
-        appt_payload = _extract_data(appointment_res.json())
-    except ValueError:
-        return jsonify([]), 200
+@strawberry.type
+class MC:
+    has_mc: bool
+    start_date: Optional[str]
+    duration_days: int
 
-    appointments = appt_payload if isinstance(appt_payload, list) else []
 
-    # Step 3
-    history_list = []
+@strawberry.type
+class Prescription:
+    drug_name: str
+    quantity: int
 
-    # Step 4 + 5 + 6
-    for appt in appointments:
-        if not isinstance(appt, dict):
-            continue
 
-        appointment_id = appt.get("appointment_id", appt.get("id"))
-        if appointment_id is None:
-            continue
+@strawberry.type
+class Billing:
+    amount: float
+    payment_status: str
+    delivery_status: str
 
-        appt_date = appt.get("date") or appt.get("slot_datetime")
-        appt_status = _friendly_status(appt.get("status"))
-        appt_patient_id = appt.get("patient_id", patient_id)
 
-        mc, prescriptions = _extract_prescription_block(appointment_id)
-        billing, invoice_id = _extract_invoice_block(appointment_id)
-        billing["delivery_status"] = _extract_delivery_status(appointment_id, appt_patient_id, invoice_id)
+@strawberry.type
+class Appointment:
+    appointment_id: int
+    date: Optional[str]
+    status: str
+    _patient_id: strawberry.Private[int]
+    _mc_cache: strawberry.Private[Optional[MC]] = None
+    _prescriptions_cache: strawberry.Private[Optional[list[Prescription]]] = None
+    _billing_cache: strawberry.Private[Optional[Billing]] = None
 
-        history_list.append(
-            {
-                "appointment_id": appointment_id,
-                "date": appt_date,
-                "status": appt_status,
-                "mc": mc,
-                "prescriptions": prescriptions,
-                "billing": billing,
-            }
+    @strawberry.field
+    def mc(self) -> MC:
+        if self._mc_cache is not None:
+            return self._mc_cache
+
+        mc_block, prescriptions_block = _extract_prescription_block(self.appointment_id)
+        self._mc_cache = MC(
+            has_mc=bool(mc_block.get("has_mc", False)),
+            start_date=mc_block.get("start_date"),
+            duration_days=int(mc_block.get("duration_days", 0)),
         )
+        self._prescriptions_cache = [
+            Prescription(
+                drug_name=str(item.get("drug_name", "")),
+                quantity=int(item.get("quantity", 0)),
+            )
+            for item in prescriptions_block
+            if isinstance(item, dict) and item.get("drug_name")
+        ]
+        return self._mc_cache
 
-    return jsonify(history_list), 200
+    @strawberry.field
+    def prescriptions(self) -> list[Prescription]:
+        if self._prescriptions_cache is not None:
+            return self._prescriptions_cache
+
+        mc_block, prescriptions_block = _extract_prescription_block(self.appointment_id)
+        self._mc_cache = MC(
+            has_mc=bool(mc_block.get("has_mc", False)),
+            start_date=mc_block.get("start_date"),
+            duration_days=int(mc_block.get("duration_days", 0)),
+        )
+        self._prescriptions_cache = [
+            Prescription(
+                drug_name=str(item.get("drug_name", "")),
+                quantity=int(item.get("quantity", 0)),
+            )
+            for item in prescriptions_block
+            if isinstance(item, dict) and item.get("drug_name")
+        ]
+        return self._prescriptions_cache
+
+    @strawberry.field
+    def billing(self) -> Billing:
+        if self._billing_cache is not None:
+            return self._billing_cache
+
+        billing_block, invoice_id = _extract_invoice_block(self.appointment_id)
+        billing_block["delivery_status"] = _extract_delivery_status(
+            self.appointment_id,
+            self._patient_id,
+            invoice_id,
+        )
+        self._billing_cache = Billing(
+            amount=float(billing_block.get("amount", 0.0)),
+            payment_status=str(billing_block.get("payment_status", "Pending")),
+            delivery_status=str(billing_block.get("delivery_status", "Pending")),
+        )
+        return self._billing_cache
+
+
+@strawberry.type
+class Query:
+    @strawberry.field
+    def consultation_history(self, patient_id: int) -> list[Appointment]:
+        # Main/base call only: appointment service.
+        appointment_res = _safe_get(f"{APPOINTMENT_URL}/appointments/patient/{patient_id}")
+
+        # Preserve existing behavior: return empty list on 404/errors.
+        if not appointment_res or appointment_res.status_code == 404 or appointment_res.status_code >= 400:
+            return []
+
+        try:
+            appt_payload = _extract_data(appointment_res.json())
+        except ValueError:
+            return []
+
+        appointments = appt_payload if isinstance(appt_payload, list) else []
+        history_list: list[Appointment] = []
+
+        for appt in appointments:
+            if not isinstance(appt, dict):
+                continue
+
+            appointment_id = appt.get("appointment_id", appt.get("id"))
+            if appointment_id is None:
+                continue
+
+            try:
+                appointment_id_int = int(appointment_id)
+            except (TypeError, ValueError):
+                continue
+
+            raw_patient_id = appt.get("patient_id", patient_id)
+            try:
+                appt_patient_id = int(raw_patient_id)
+            except (TypeError, ValueError):
+                appt_patient_id = patient_id
+
+            history_list.append(
+                Appointment(
+                    appointment_id=appointment_id_int,
+                    date=appt.get("date") or appt.get("slot_datetime"),
+                    status=_friendly_status(appt.get("status")),
+                    _patient_id=appt_patient_id,
+                )
+            )
+
+        return history_list
+
+
+schema = strawberry.Schema(query=Query)
+app.add_url_rule(
+    "/graphql",
+    view_func=GraphQLView.as_view("graphql_view", schema=schema),
+)
 
 
 if __name__ == "__main__":

@@ -82,10 +82,11 @@ def create_zoom_meeting():
         _raise_for_connection("Teleconferencing service", "CONSULT-503-ZOOM_UNREACHABLE")
     if not res.ok:
         _raise_for_status(res)
-    return res.json()["join_url"]
+    data = res.json()
+    return {"join_url": data["join_url"], "start_url": data["start_url"]}
 
 
-def create_appointment(patient_id, doctor_id, meet_link):
+def create_appointment(patient_id, doctor_id, join_url, start_url):
     try:
         res = requests.post(
             f"{APPOINTMENT_SERVICE_URL}/appointments",
@@ -93,7 +94,8 @@ def create_appointment(patient_id, doctor_id, meet_link):
                 "patient_id": patient_id,
                 "doctor_id": doctor_id,
                 "slot_datetime": datetime.now(timezone.utc).isoformat(),
-                "meet_link": meet_link,
+                "join_url": join_url,
+                "start_url": start_url,
             },
         )
     except requests.exceptions.RequestException:

@@ -21,6 +21,11 @@ const router = createRouter({
       name: 'post-consult',
       component: PostConsultation,
     },
+    {
+      path: '/doctor/consultation-setup',
+      name: 'consultation-setup',
+      component: () => import('../views/doctor/ConsultationSetup.vue'),
+    },
   ],
 })
 

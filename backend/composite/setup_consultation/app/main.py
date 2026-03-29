@@ -52,7 +52,7 @@ def handle_unexpected_error(err):
     )
 
 
-@app.route("/next-patient", methods=["POST"])
+@app.route("/setup-consultation/next-patient", methods=["POST"])
 def next_patient():
     """
     Trigger full consultation setup for the next patient in queue.

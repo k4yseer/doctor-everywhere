@@ -22,6 +22,13 @@ QUEUE_SERVICE_URL = os.getenv("QUEUE_SERVICE_URL", "http://queue-service:5011")
 SERVICE_NAME = "join-queue"
 
 
+class UpstreamError(Exception):
+    def __init__(self, status_code, message, error_code):
+        self.status_code = status_code
+        self.message = message
+        self.error_code = error_code
+
+
 def error_response(status_code, message, error_code, payload=None):
     if status_code >= 500:
         _publish_error(source_service=SERVICE_NAME, error_code=error_code, error_message=message, payload=payload)
@@ -30,27 +37,29 @@ def error_response(status_code, message, error_code, payload=None):
 
 def _forward_error(res):
     try:
-        body = res.json()
+        message = res.json().get("message", "Upstream service error")
     except Exception:
-        body = {}
-    code = body.get("code", res.status_code)
-    message = body.get("message", "Upstream service error")
-    return error_response(res.status_code, message, f"JOIN-QUEUE-{res.status_code}-UPSTREAM")
+        message = "Upstream service error"
+    raise UpstreamError(res.status_code, message, f"JOIN-QUEUE-{res.status_code}-UPSTREAM")
 
 
 def _get_status_data(patient_id, available_doctors_count):
-    """Fetch queue position and calculate wait time for a patient already in queue.
-    Returns (data_dict, error_tuple_or_None).
-    """
+    """Fetch queue_id, position and calculate wait time for a patient already in queue."""
     try:
         pos_res = requests.get(f"{QUEUE_SERVICE_URL}/queue/position/{patient_id}")
     except requests.exceptions.RequestException:
-        return None, error_response(503, "Queue service unreachable", "JOIN-QUEUE-503-QUEUE_UNREACHABLE")
+        raise UpstreamError(503, "Queue service unreachable", "JOIN-QUEUE-503-QUEUE_UNREACHABLE")
     if not pos_res.ok:
-        return None, _forward_error(pos_res)
-    queue_position = pos_res.json().get("queue_position")
-    waiting_time = (queue_position - 1) // available_doctors_count * 10
-    return {"queue_position": queue_position, "waiting_time": waiting_time}, None
+        _forward_error(pos_res)
+    body = pos_res.json()
+    queue_position = body.get("queue_position")
+    return {"queue_id": body.get("queue_id"), "queue_position": queue_position,
+            "waiting_time": (queue_position - 1) // available_doctors_count * 10}
+
+
+@app.errorhandler(UpstreamError)
+def handle_upstream_error(err):
+    return error_response(err.status_code, err.message, err.error_code)
 
 
 @app.errorhandler(Exception)
@@ -103,8 +112,7 @@ def join_queue():
               example: 200
             queue_id:
               type: integer
-              nullable: true
-              example: null
+              example: 3
             queue_position:
               type: integer
               example: 2
@@ -124,7 +132,7 @@ def join_queue():
               example: 201
             queue_id:
               type: integer
-              example: 1
+              example: 4
             queue_position:
               type: integer
               example: 3
@@ -149,46 +157,39 @@ def join_queue():
     try:
         doctors_res = requests.get(f"{DOCTOR_SERVICE_URL}/doctors", params={"status": "AVAILABLE"})
     except requests.exceptions.RequestException:
-        return error_response(503, "Doctor service unreachable", "JOIN-QUEUE-503-DOCTOR_UNREACHABLE")
+        raise UpstreamError(503, "Doctor service unreachable", "JOIN-QUEUE-503-DOCTOR_UNREACHABLE")
 
     if not doctors_res.ok:
-        return _forward_error(doctors_res)
+        _forward_error(doctors_res)
 
     doctors = doctors_res.json().get("data", [])
     available_doctors_count = len(doctors)
 
     if available_doctors_count == 0:
-        return error_response(503, "No doctors available", "JOIN-QUEUE-503-NO_DOCTORS")
+        raise UpstreamError(503, "No doctors available", "JOIN-QUEUE-503-NO_DOCTORS")
 
     try:
-        queue_res = requests.post(
-            f"{QUEUE_SERVICE_URL}/queue",
-            json={"patient_id": patient_id},
-        )
+        queue_res = requests.post(f"{QUEUE_SERVICE_URL}/queue", json={"patient_id": patient_id})
     except requests.exceptions.RequestException:
-        return error_response(503, "Queue service unreachable", "JOIN-QUEUE-503-QUEUE_UNREACHABLE")
+        raise UpstreamError(503, "Queue service unreachable", "JOIN-QUEUE-503-QUEUE_UNREACHABLE")
 
     if queue_res.status_code == 409:
-        # Patient already in queue — return their current position
-        status_data, err = _get_status_data(patient_id, available_doctors_count)
-        if err:
-            return err
+        status_data = _get_status_data(patient_id, available_doctors_count)
         return jsonify({
             "code": 200,
-            "queue_id": None,
+            "queue_id": status_data["queue_id"],
             "queue_position": status_data["queue_position"],
             "waiting_time": status_data["waiting_time"],
             "status": "QUEUED",
         }), 200
 
     if not queue_res.ok:
-        return _forward_error(queue_res)
+        _forward_error(queue_res)
 
     queue_body = queue_res.json()
     queue_id = queue_body.get("queue_id")
     queue_position = queue_body.get("queue_position")
     waiting_time = (queue_position - 1) // available_doctors_count * 10
-
     return jsonify({
         "code": 201,
         "queue_id": queue_id,
@@ -221,6 +222,9 @@ def get_queue_status(patient_id):
             code:
               type: integer
               example: 200
+            queue_id:
+              type: integer
+              example: 3
             queue_position:
               type: integer
               example: 2
@@ -238,17 +242,17 @@ def get_queue_status(patient_id):
     try:
         doctors_res = requests.get(f"{DOCTOR_SERVICE_URL}/doctors", params={"status": "AVAILABLE"})
     except requests.exceptions.RequestException:
-        return error_response(503, "Doctor service unreachable", "JOIN-QUEUE-503-DOCTOR_UNREACHABLE")
+        raise UpstreamError(503, "Doctor service unreachable", "JOIN-QUEUE-503-DOCTOR_UNREACHABLE")
 
     if not doctors_res.ok:
-        return _forward_error(doctors_res)
+        _forward_error(doctors_res)
 
     doctors = doctors_res.json().get("data", [])
-    available_doctors_count = len(doctors) or 1  # avoid division by zero
+    available_doctors_count = len(doctors)
+    if available_doctors_count == 0:
+        raise UpstreamError(503, "No doctors available", "JOIN-QUEUE-503-NO_DOCTORS")
 
-    status_data, err = _get_status_data(patient_id, available_doctors_count)
-    if err:
-        return err
+    status_data = _get_status_data(patient_id, available_doctors_count)
 
     return jsonify({
         "code": 200,

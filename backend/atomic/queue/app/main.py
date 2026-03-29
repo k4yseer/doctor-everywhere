@@ -205,7 +205,7 @@ def get_queue_position(patient_id):
     if not entry:
         return error_response(404, "Patient not found in queue", "QUEUE-404-NOT_FOUND", {"patient_id": patient_id})
     position = db.query(func.count(QueueEntry.id)).filter(QueueEntry.created_at <= entry.created_at).scalar()
-    return jsonify({"code": 200, "patient_id": patient_id, "queue_position": position}), 200
+    return jsonify({"code": 200, "patient_id": patient_id, "queue_id": entry.id, "queue_position": position}), 200
 
 
 @app.route("/queue/head", methods=["DELETE"])

@@ -8,7 +8,7 @@ Orchestrates the full consultation setup for a doctor's next patient: optionally
 Client
   │
   ▼
-POST /next-patient
+POST /setup-consultation/next-patient
   │
   ├─► (optional) GET /appointments/:id          (Appointment Service :5002)
   ├─► (optional) GET /patient/:id/details       (Patient Service :5003)
@@ -33,7 +33,7 @@ POST /next-patient
 
 ## API
 
-### `POST /next-patient`
+### `POST /setup-consultation/next-patient`
 
 Dequeue the next patient and set up the consultation.
 

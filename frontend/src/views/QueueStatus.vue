@@ -1,105 +1,61 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { QueueService, type QueueEntry } from '../domains/appointment/queueService'
+import axios from 'axios'
+import { QueueService } from '../domains/appointment/queueService'
 
-type PageState = 'joining' | 'queued' | 'confirmed' | 'error'
+type PageState = 'joining' | 'queued' | 'error'
+
+// HARD CODED PATIENT ID
+const PATIENT_ID = "10000001"
 
 const router = useRouter()
 
 const state = ref<PageState>('joining')
-const queue = ref<QueueEntry | null>(null)
+const queue = ref<{ queue_position: number; waiting_time: number } | null>(null)
 const errorMsg = ref('')
-const lastUpdated = ref<Date | null>(null)
-const secondsUntilRefresh = ref(300) // 5 minutes
+const refreshing = ref(false)
+const showNoDoctersToast = ref(false)
 
-let pollInterval: ReturnType<typeof setInterval> | null = null
-let countdownInterval: ReturnType<typeof setInterval> | null = null
-
-const formattedLastUpdated = computed(() => {
-  if (!lastUpdated.value) return ''
-  return lastUpdated.value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-})
-
-const countdownDisplay = computed(() => {
-  const m = Math.floor(secondsUntilRefresh.value / 60)
-  const s = secondsUntilRefresh.value % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-})
-
-async function pollStatus(queue_id: string) {
-  try {
-    const entry = await QueueService.getQueueStatus(queue_id)
-    queue.value = entry
-    lastUpdated.value = new Date()
-    secondsUntilRefresh.value = 300
-
-    if (entry.status === 'CONFIRMED') {
-      state.value = 'confirmed'
-      stopPolling()
-    } else {
-      state.value = 'queued'
-    }
-  } catch {
-    // keep current state, silently retry next interval
-  }
-}
-
-function stopPolling() {
-  if (pollInterval) clearInterval(pollInterval)
-  if (countdownInterval) clearInterval(countdownInterval)
-}
-
-function startPolling(queue_id: string) {
-  pollInterval = setInterval(() => pollStatus(queue_id), 300_000)
-  countdownInterval = setInterval(() => {
-    secondsUntilRefresh.value = Math.max(0, secondsUntilRefresh.value - 1)
-  }, 1000)
+function triggerNoDoctersToast() {
+  showNoDoctersToast.value = true
+  setTimeout(() => router.push('/'), 3000)
 }
 
 async function init() {
-  const savedId = QueueService.getSavedQueueId()
-
-  if (savedId) {
-    // Returning visitor: just poll for latest status
-    await pollStatus(savedId)
-    if (state.value !== 'confirmed') startPolling(savedId)
-    return
-  }
-
-  // Fresh join — POST /join-queue
-  // TODO: replace hardcoded patient_id with value from auth store once login is implemented
   try {
-    const entry = await QueueService.joinQueue(1)
-    queue.value = entry
-    lastUpdated.value = new Date()
-
-    if (entry.status === 'CONFIRMED') {
-      state.value = 'confirmed'
-    } else {
-      state.value = 'queued'
-      startPolling(entry.queue_id)
-    }
+    queue.value = await QueueService.joinQueue(PATIENT_ID)
+    state.value = 'queued'
   } catch (err) {
-    state.value = 'error'
-    errorMsg.value = err instanceof Error ? err.message : 'Unable to join the queue. Please try again.'
+    if (axios.isAxiosError(err) && err.response?.data?.message === 'No doctors available') {
+      triggerNoDoctersToast()
+    } else {
+      state.value = 'error'
+      errorMsg.value = axios.isAxiosError(err)
+        ? (err.response?.data?.message ?? 'Unable to join the queue. Please try again.')
+        : err instanceof Error ? err.message : 'Unable to join the queue. Please try again.'
+    }
+  }
+}
+
+async function refresh() {
+  refreshing.value = true
+  try {
+    const entry = await QueueService.getQueueStatus(PATIENT_ID)
+    queue.value = entry
+  } catch {
+    // keep last known state on failure
+  } finally {
+    refreshing.value = false
   }
 }
 
 function leaveQueue() {
-  stopPolling()
-  QueueService.clearSavedQueueId()
   router.push('/')
 }
 
-function joinConsultation() {
-  if (queue.value?.meet_link) {
-    window.open(queue.value.meet_link, '_blank', 'noopener')
-  }
-}
 
 onMounted(init)
-onUnmounted(stopPolling)
 </script>
 
 <template>
@@ -132,16 +88,14 @@ onUnmounted(stopPolling)
           <div class="radar-ring ring-2" />
           <div class="radar-ring ring-3" />
           <div class="radar-core">
-            <span class="queue-num">#{{ queue?.position ?? '–' }}</span>
+            <span class="queue-num">#{{ queue!.queue_position }}</span>
             <span class="queue-num-label">in queue</span>
           </div>
         </div>
 
         <h2 class="state-title">You're in the queue</h2>
         <p class="state-sub">
-          {{ queue?.estimated_wait_minutes != null
-              ? `Estimated wait: ~${queue.estimated_wait_minutes} min`
-              : 'Estimated wait time will appear shortly' }}
+          Estimated wait: ~{{ queue!.waiting_time }} min
         </p>
 
         <!-- Info card -->
@@ -156,61 +110,20 @@ onUnmounted(stopPolling)
             <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.63 3.4 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.8a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z" />
             </svg>
-            <p>You'll also receive an SMS confirmation once a doctor is ready.</p>
+            <p>You'll receive an email with your Zoom link once a doctor is ready.</p>
           </div>
         </div>
 
-        <!-- Refresh status -->
-        <div class="refresh-row">
-          <span class="refresh-dot" />
-          <span>Last updated {{ formattedLastUpdated }} · refreshing in {{ countdownDisplay }}</span>
-        </div>
-
-        <button class="leave-btn" @click="leaveQueue">Leave queue</button>
-      </div>
-
-      <!-- ── Confirmed ── -->
-      <div v-else-if="state === 'confirmed'" class="state-card">
-        <div class="check-wrap">
-          <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
+        <button class="refresh-btn" @click="refresh" :disabled="refreshing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
           </svg>
-        </div>
-
-        <h2 class="state-title confirmed-title">Your doctor is ready!</h2>
-
-        <!-- Doctor card -->
-        <div class="doctor-card" v-if="queue?.doctor">
-          <div class="doctor-avatar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="28" height="28">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          </div>
-          <div class="doctor-info">
-            <span class="doctor-name">{{ queue.doctor.name }}</span>
-            <span class="doctor-specialty">{{ queue.doctor.specialty }}</span>
-          </div>
-        </div>
-
-        <button class="join-consult-btn" @click="joinConsultation" :disabled="!queue?.meet_link">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-            <polygon points="23 7 16 12 23 17 23 7" />
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-          </svg>
-          Join Consultation
+          {{ refreshing ? 'Refreshing…' : 'Refresh status' }}
         </button>
 
-        <button class="post-consult-btn" @click="router.push('/post-consult')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
-            <path d="M9 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8z" />
-            <polyline points="17 2 17 8 11 8" />
-          </svg>
-          View Post-Consultation Summary
-        </button>
-
-        <button class="leave-btn" @click="leaveQueue">Back to home</button>
+        <button class="leave-btn" @click="leaveQueue">Return to dashboard</button>
       </div>
 
       <!-- ── Error ── -->
@@ -228,6 +141,18 @@ onUnmounted(stopPolling)
       </div>
 
     </main>
+
+    <!-- ── Toast ── -->
+    <Transition name="toast">
+      <div v-if="showNoDoctersToast" class="toast">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        No doctors are currently available. Redirecting you home…
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -313,9 +238,6 @@ onUnmounted(stopPolling)
   color: #fff;
 }
 
-.confirmed-title {
-  color: #4ade80;
-}
 
 .state-sub {
   font-size: 0.92rem;
@@ -424,89 +346,6 @@ onUnmounted(stopPolling)
   margin-top: 1px;
 }
 
-/* ── Refresh row ────────────────────────────────────────────── */
-.refresh-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.78rem;
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.refresh-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #22c55e;
-  animation: blink 1.8s ease-in-out infinite;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.25; }
-}
-
-/* ── Confirmed: check icon ──────────────────────────────────── */
-.check-wrap {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: rgba(34, 197, 94, 0.12);
-  border: 1.5px solid rgba(34, 197, 94, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.check-icon {
-  width: 36px;
-  height: 36px;
-  color: #4ade80;
-}
-
-/* ── Doctor card ────────────────────────────────────────────── */
-.doctor-card {
-  width: 100%;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 1rem;
-  padding: 1rem 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  text-align: left;
-}
-
-.doctor-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: #4ade80;
-}
-
-.doctor-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.doctor-name {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-.doctor-specialty {
-  font-size: 0.82rem;
-  color: rgba(255, 255, 255, 0.45);
-}
-
 /* ── Error ──────────────────────────────────────────────────── */
 .error-icon-wrap {
   width: 80px;
@@ -558,10 +397,10 @@ onUnmounted(stopPolling)
   }
 }
 
-.post-consult-btn {
+.refresh-btn {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  border: 1px solid rgba(34, 197, 94, 0.3);
   border-radius: 0.85rem;
   padding: 0.75rem 1.25rem;
   display: flex;
@@ -571,15 +410,51 @@ onUnmounted(stopPolling)
   font-size: 0.88rem;
   font-weight: 600;
   font-family: 'Inter', sans-serif;
-  color: rgba(255, 255, 255, 0.65);
+  color: #4ade80;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  transition: background 0.2s, border-color 0.2s;
 
-  &:hover {
-    background: rgba(255, 255, 255, 0.09);
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.18);
+  &:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.5);
   }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+/* ── Toast ──────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(30, 30, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  padding: 0.7rem 1.1rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  white-space: nowrap;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(0.5rem);
 }
 
 .leave-btn {

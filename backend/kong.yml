@@ -17,6 +17,10 @@ services:
         paths:
           - /join-queue
         strip_path: false
+      - name: join-queue-status-route
+        paths:
+          - ~/join-queue/status/(.+)
+        strip_path: false
         
   - name: get-consultation-history-service
     url: http://get-consultation-history-service:5013

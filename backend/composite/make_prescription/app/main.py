@@ -119,21 +119,21 @@ def make_prescription():
     # ── Step 5: Check and reserve inventory ────────────────────────────────────
     try:
         stock_resp = requests.get(
-            f"{INVENTORY_SERVICE_URL}/inventory/{drug_code}",
+            f"{INVENTORY_SERVICE_URL}/inventory/medicines/",
             timeout=5
         )
-        if stock_resp.status_code != 200:
+        medicines = stock_resp.json()
+        stock = next((m for m in medicines if m["medicine_code"] == drug_code), None)
+        if not stock:
             return jsonify({"code": 400, "message": f"Drug {drug_code} not found in inventory"}), 400
-
-        stock = stock_resp.json().get("data", {})
-        if stock.get("stock_available", 0) < dispense_quantity:
+        if stock["stock_available"] < dispense_quantity:
             return jsonify({"code": 400, "message": "Insufficient stock"}), 400
-
+        
         reserve_resp = requests.post(
             f"{INVENTORY_SERVICE_URL}/inventory/reservations/",
             json={
-                "drug_code": drug_code,
-                "patient_id": patient_id,
+                "medicine_code": drug_code,
+                "appointment_id": int(appointment_id),
                 "amount": dispense_quantity
             },
             timeout=5
@@ -141,7 +141,7 @@ def make_prescription():
         if reserve_resp.status_code not in (200, 201):
             raise Exception(f"Reservation failed: {reserve_resp.text}")
 
-        reservation = reserve_resp.json().get("data", {})
+        reservation = reserve_resp.json().get("reservation", {})
 
     except Exception as e:
         _publish_error("inventory_service", "INVENTORY-500", str(e), data)
@@ -150,7 +150,7 @@ def make_prescription():
     # ── Step 7: Create prescription record ─────────────────────────────────────
     try:
         prescription_resp = requests.post(
-            f"{PRESCRIPTION_SERVICE_URL}/prescriptions/",
+            f"{PRESCRIPTION_SERVICE_URL}/CreatePrescription",
             json={
                 "appointment_id":      appointment_id,
                 "patient_id":          patient_id,
@@ -159,13 +159,15 @@ def make_prescription():
                 "dispense_quantity":   dispense_quantity,
                 "mc_start_date":       mc_start_date,
                 "mc_duration_days":    mc_duration_days,
+                "drug_code": drug_code
             },
             timeout=5
         )
         if prescription_resp.status_code not in (200, 201):
             raise Exception(f"Prescription service returned {prescription_resp.status_code}")
 
-        prescription = prescription_resp.json().get("data", {})
+        response_json = prescription_resp.json()
+        prescription = response_json if isinstance(response_json, dict) else {"prescription_id": response_json}
 
     except Exception as e:
         _publish_error("prescription_service", "PRESCRIPTION-500", str(e), data)

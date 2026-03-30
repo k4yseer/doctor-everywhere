@@ -136,16 +136,27 @@ def make_payment():
             timeout=5
         )
         if invoice_resp.status_code not in (200, 201):
-            error_msg = invoice_resp.json().get("message", "Invoice creation failed")
+            try:
+                error_msg = invoice_resp.json().get("message", invoice_resp.text)
+            except Exception:
+                error_msg = invoice_resp.text
+
             _publish_error("make_payment", f"INVOICE-{invoice_resp.status_code}", error_msg, data)
-            return jsonify({"code": 500, "message": "Failed to create invoice"}), 500
+            return jsonify({
+                "code": invoice_resp.status_code,
+                "message": "Invoice creation failed",
+                "details": error_msg 
+            }), 500
 
         invoice_data = invoice_resp.json().get("data", {})
 
     except Exception as e:
         _publish_error("make_payment", "INVOICE-500", str(e), data)
-        return jsonify({"code": 500, "message": "Failed to create invoice"}), 500
-
+        return jsonify({
+            "code": 500,
+            "message": "Failed to create invoice",
+            "details": str(e)  # <-- include exception details
+        }), 500
     # ── Step 3: Update appointment status to PAID ──────────────────────────────
     try:
         status_resp = requests.put(
@@ -243,4 +254,4 @@ def make_payment():
 
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5016, debug=False)
+    app.run(host="0.0.0.0", port=5016, debug=True)

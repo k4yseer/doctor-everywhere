@@ -346,7 +346,7 @@ services:
     environment:
       - appointmentURL=http://appointment-service:5002
       - invoiceURL=http://invoice-service:5008
-      - deliveryURL=http://delivery-service:5008
+      - deliveryURL=http://delivery-service:5014
       - prescriptionURL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI
       - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
@@ -456,7 +456,7 @@ services:
       - STRIPE_WRAPPER_URL=http://payment-wrapper:5005
       - INVOICE_SERVICE_URL=http://invoice-service:5008
       - APPOINTMENT_SERVICE_URL=http://appointment-service:5002
-      - DELIVERY_SERVICE_URL=http://delivery-service:5008
+      - DELIVERY_SERVICE_URL=http://delivery-service:5014
       - INVENTORY_SERVICE_URL=http://inventory-service:5009
       - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:

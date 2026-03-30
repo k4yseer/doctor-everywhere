@@ -56,7 +56,7 @@ def make_prescription():
         schema:
           properties:
             appointment_id:
-              type: string
+              type: integer
             patient_id:
               type: string
             drug_code:
@@ -91,8 +91,22 @@ def make_prescription():
     mc_start_date       = data.get("mc_start_date")
     mc_duration_days    = data.get("mc_duration_days")
 
-    if not all([appointment_id, patient_id, drug_code, medication_name, dispense_quantity]):
+    if not all([patient_id, drug_code, medication_name]) or appointment_id is None or dispense_quantity is None:
         return jsonify({"code": 400, "message": "Missing required fields"}), 400
+
+    try:
+        appointment_id = int(appointment_id)
+        if appointment_id <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({"code": 400, "message": "appointment_id must be a positive integer"}), 400
+
+    try:
+        dispense_quantity = int(dispense_quantity)
+        if dispense_quantity <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({"code": 400, "message": "dispense_quantity must be a positive integer"}), 400
 
     # ── Step 3: Check patient allergies ────────────────────────────────────────
     try:
@@ -133,7 +147,7 @@ def make_prescription():
             f"{INVENTORY_SERVICE_URL}/inventory/reservations/",
             json={
                 "medicine_code": drug_code,
-                "appointment_id": int(appointment_id),
+                "appointment_id": appointment_id,
                 "amount": dispense_quantity
             },
             timeout=5
@@ -173,7 +187,7 @@ def make_prescription():
         _publish_error("prescription_service", "PRESCRIPTION-500", str(e), data)
         return jsonify({"code": 500, "message": "Failed to create prescription record"}), 500
 
-    # ── Step 10: Publish PRESCRIPTION_MADE for Twilio notification ─────────────
+    # ── Step 10: Publish PRESCRIPTION_MADE for Resend notification ─────────────
     publish_message(
         routing_key="prescription.made",
         message={

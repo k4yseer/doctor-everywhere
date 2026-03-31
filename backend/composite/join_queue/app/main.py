@@ -103,7 +103,7 @@ def join_queue():
               example: "10000001"
     responses:
       200:
-        description: Patient already in queue — current position returned
+        description: Patient already in queue — position returned by queue service
         schema:
           type: object
           properties:
@@ -173,16 +173,6 @@ def join_queue():
     except requests.exceptions.RequestException:
         raise UpstreamError(503, "Queue service unreachable", "JOIN-QUEUE-503-QUEUE_UNREACHABLE")
 
-    if queue_res.status_code == 409:
-        status_data = _get_status_data(patient_id, available_doctors_count)
-        return jsonify({
-            "code": 200,
-            "queue_id": status_data["queue_id"],
-            "queue_position": status_data["queue_position"],
-            "waiting_time": status_data["waiting_time"],
-            "status": "QUEUED",
-        }), 200
-
     if not queue_res.ok:
         _forward_error(queue_res)
 
@@ -191,12 +181,12 @@ def join_queue():
     queue_position = queue_body.get("queue_position")
     waiting_time = (queue_position - 1) // available_doctors_count * 10
     return jsonify({
-        "code": 201,
+        "code": queue_res.status_code,
         "queue_id": queue_id,
         "queue_position": queue_position,
         "waiting_time": waiting_time,
         "status": "QUEUED",
-    }), 201
+    }), queue_res.status_code
 
 
 @app.route("/join-queue/status/<string:patient_id>", methods=["GET"])

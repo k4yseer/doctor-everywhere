@@ -30,6 +30,14 @@ services:
           - ~/consultation-history/(.+)
         strip_path: false
 
+  - name: make-payment 
+    url: http://make-payment:5016 
+    routes: 
+      - name: make-payment-route 
+        paths: 
+          - /make-payment 
+        strip_path: false
+
   - name: make-prescription
     url: http://make-prescription:5015
     routes:

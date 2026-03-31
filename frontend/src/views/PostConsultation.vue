@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { loadStripe, type Stripe, type StripeCardElement, type StripeElements, type StripeCardElementChangeEvent } from '@stripe/stripe-js'
 import { useRouter } from 'vue-router'
 import {
   PostConsultService,
   type ConsultationData,
   type Delivery,
+  type MakePaymentPayload,
 } from '../domains/consultation/postConsultService'
 
 const router = useRouter()
@@ -16,6 +18,16 @@ const deliveryAddress = ref('')
 const deliveryState = ref<'idle' | 'scheduling' | 'scheduled'>('idle')
 const delivery = ref<Delivery | null>(null)
 
+const phoneNumber = ref(import.meta.env.VITE_PATIENT_PHONE || '+6512345678')
+const medicineCode = ref(import.meta.env.VITE_MEDICINE_CODE || 'MED001')
+const defaultPaymentMethodId = import.meta.env.VITE_STRIPE_PAYMENT_METHOD || 'pm_card_visa'
+const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || ''
+
+const stripe = ref<Stripe | null>(null)
+const elements = ref<StripeElements | null>(null)
+const card = ref<StripeCardElement | null>(null)
+const cardElementRef = ref<HTMLDivElement | null>(null)
+const cardError = ref('')
 const paymentState = ref<'idle' | 'processing' | 'paid'>('idle')
 
 const formattedDate = computed(() => {
@@ -25,6 +37,67 @@ const formattedDate = computed(() => {
     year: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 })
+
+async function setupStripe() {
+  if (!stripePublishableKey) {
+    cardError.value = 'Stripe publishable key is not configured.'
+    return
+  }
+
+  const stripeInstance = await loadStripe(stripePublishableKey)
+  if (!stripeInstance) {
+    cardError.value = 'Stripe failed to initialize.'
+    return
+  }
+
+  stripe.value = stripeInstance
+  elements.value = stripeInstance.elements()
+
+  if (!cardElementRef.value || !elements.value) return
+
+  const cardElement = elements.value.create('card', {
+    style: {
+      base: {
+        fontSize: '16px',
+        color: '#ffffff',
+        '::placeholder': { color: '#aab7c4' },
+      },
+      invalid: {
+        color: '#ff6b6b',
+      },
+    },
+    hidePostalCode: true,
+  })
+
+  card.value = cardElement
+  cardElement.mount(cardElementRef.value)
+  cardElement.on('change', (event: StripeCardElementChangeEvent) => {
+    cardError.value = event.error?.message ?? ''
+  })
+}
+
+async function createPaymentMethod(): Promise<string | null> {
+  if (stripe.value && card.value) {
+    const result = await stripe.value.createPaymentMethod({
+      type: 'card',
+      card: card.value,
+    })
+
+    if (result.error) {
+      cardError.value = result.error.message ?? 'Payment method creation failed.'
+      return null
+    }
+
+    return result.paymentMethod?.id ?? null
+  }
+
+  if (!stripePublishableKey) {
+    return defaultPaymentMethodId
+  }
+
+  cardError.value = 'Stripe has not been initialized properly.'
+  return null
+}
 
 onMounted(async () => {
   // TODO: replace with real patient_id from auth store
@@ -37,6 +110,7 @@ onMounted(async () => {
     paymentState.value = 'paid'
   }
   loading.value = false
+  await setupStripe()
 })
 
 async function scheduleDelivery() {
@@ -44,9 +118,10 @@ async function scheduleDelivery() {
   deliveryState.value = 'scheduling'
   try {
     delivery.value = await PostConsultService.scheduleDelivery(
-      consultation.value.appointment.consult_id,
+      consultation.value.appointment.id,
       deliveryAddress.value.trim(),
     )
+    consultation.value.delivery = delivery.value
     deliveryState.value = 'scheduled'
   } catch {
     deliveryState.value = 'idle'
@@ -56,12 +131,53 @@ async function scheduleDelivery() {
 async function makePayment() {
   if (!consultation.value || paymentState.value !== 'idle') return
   paymentState.value = 'processing'
-  try {
-    await PostConsultService.makePayment(consultation.value.appointment.id)
-    paymentState.value = 'paid'
-    consultation.value.invoice.status = 'PAID'
-  } catch {
+
+  const patient_address = deliveryAddress.value.trim() || delivery.value?.address || consultation.value.delivery?.address || ''
+  if (!patient_address) {
+    cardError.value = 'Please provide a delivery address before paying.'
     paymentState.value = 'idle'
+    return
+  }
+
+  let reserve_amount = consultation.value.prescription.items.reduce(
+    (sum: number, item: { quantity: number }) => sum + (item.quantity ?? 0),
+    0,
+  )
+  if (reserve_amount <= 0) {
+    reserve_amount = 1
+  }
+
+  const payload: MakePaymentPayload = {
+    appointment_id: consultation.value.appointment.id,
+    patient_id: consultation.value.appointment.patient_id,
+    amount: Math.round(consultation.value.invoice.total * 100),
+    currency: consultation.value.invoice.currency.toLowerCase(),
+    paymentMethodId: '',
+    patient_address,
+    medicine_code: medicineCode.value,
+    reserve_amount,
+    phone_number: phoneNumber.value,
+  }
+
+  try {
+    const paymentMethodId = await createPaymentMethod()
+    if (!paymentMethodId) {
+      throw new Error(cardError.value || 'Payment method creation failed')
+    }
+
+    payload.paymentMethodId = paymentMethodId
+    const response = await PostConsultService.makePayment(payload)
+    if (response.code === 200) {
+      paymentState.value = 'paid'
+      consultation.value.invoice.status = 'PAID'
+    } else {
+      throw new Error(response.message || 'Payment failed')
+    }
+  } catch (error) {
+    paymentState.value = 'idle'
+    if (error instanceof Error) {
+      cardError.value = error.message
+    }
   }
 }
 
@@ -267,6 +383,15 @@ function fmt(amount: number) {
               <span>Total</span>
               <span>{{ consultation.invoice.currency }} {{ fmt(consultation.invoice.total) }}</span>
             </div>
+          </div>
+
+          <div class="stripe-card-wrapper">
+            <label class="stripe-label">Card details</label>
+            <div ref="cardElementRef" class="stripe-card"></div>
+            <p v-if="cardError" class="stripe-error">{{ cardError }}</p>
+            <p v-else-if="!stripePublishableKey" class="stripe-hint">
+              Stripe publishable key is not configured. Falling back to a test payment token.
+            </p>
           </div>
 
           <!-- Pay button -->
@@ -774,6 +899,40 @@ function fmt(amount: number) {
   color: rgba(255, 255, 255, 0.28);
   text-align: center;
   margin: 0.6rem 0 0;
+}
+
+.stripe-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.stripe-label {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.stripe-card {
+  min-height: 52px;
+  padding: 0.95rem 0.95rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.stripe-error {
+  color: #f87171;
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.stripe-hint {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.82rem;
+  margin: 0;
 }
 
 .payment-success {

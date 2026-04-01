@@ -42,6 +42,7 @@ class Appointment(Base):
     start_url = Column(String(512), nullable=True)
     join_url = Column(String(512), nullable=True)
     status = Column(Enum(*APPOINTMENT_STATUSES), nullable=False, default="CONFIRMED")
+    clinical_notes = Column(String(5000), nullable=True)
 
     def json(self):
         slot = self.slot_datetime
@@ -58,6 +59,7 @@ class Appointment(Base):
             "start_url": self.start_url,
             "join_url": self.join_url,
             "status": self.status,
+            "clinical_notes": self.clinical_notes,
         }
 
 
@@ -96,7 +98,7 @@ from app.error_publisher import publish_error as publish_error
 
 
 def error_response(status_code, message, error_code, payload=None):
-    publish_error(error_code=error_code, error_message=message, payload=payload)
+    publish_error(source_service=SERVICE_NAME, error_code=error_code, error_message=message, payload=payload)
     return jsonify({"code": status_code, "message": message}), status_code
 
 
@@ -109,6 +111,10 @@ def handle_unexpected_error(err):
             f"APPT-{err.code or 500}-HTTP",
             {"path": request.path, "method": request.method},
         )
+
+    import traceback
+    app.logger.error(f"Unhandled Exception: {err}")
+    app.logger.error(traceback.format_exc())
 
     return error_response(
         500,
@@ -315,33 +321,30 @@ def create_appointment():
 @app.route("/appointments/<int:id>/status", methods=["PUT"])
 def update_appointment_status(id):
     """
-    Update the status of an appointment.
+    Update appointment status and clinical notes.
     ---
     tags:
-      - Appointments
-    consumes:
-      - application/json
+      - Appointment
     parameters:
       - in: path
         name: id
         type: integer
         required: true
-        example: 1
       - in: body
         name: body
         required: true
         schema:
           type: object
-          required:
-            - status
           properties:
             status:
               type: string
-              enum: [CONFIRMED, PENDING_PAYMENT, PAID, NO_SHOW]
-              example: "PAID"
+              example: "PENDING_PAYMENT"
+            clinical_notes:
+              type: string
+              example: "Patient presents with persistent headache. Prescribed paracetamol."
     responses:
       200:
-        description: Appointment status updated
+        description: Appointment updated successfully
         schema:
           type: object
           properties:
@@ -350,8 +353,9 @@ def update_appointment_status(id):
               example: 200
             message:
               type: string
-              example: "Status updated successfully"
+              example: "Appointment updated successfully"
             data:
+              $ref: '#/definitions/Appointment'
               $ref: '#/definitions/Appointment'
       400:
         description: Invalid or missing status
@@ -363,11 +367,9 @@ def update_appointment_status(id):
     if not appointment:
         return error_response(404, "Appointment not found", "APPT-404-NOT_FOUND", {"appointment_id": id})
 
-    data = request.get_json()
-    new_status = data.get("status") if data else None
-
-    if not new_status:
-        return error_response(400, "status is required", "APPT-400-MISSING_STATUS", {"appointment_id": id})
+    data = request.get_json() or {}
+    new_status = data.get("status", "PENDING_PAYMENT")
+    clinical_notes = data.get("clinical_notes")
 
     if new_status not in APPOINTMENT_STATUSES:
         return error_response(
@@ -378,10 +380,12 @@ def update_appointment_status(id):
         )
 
     appointment.status = new_status
+    if clinical_notes is not None:
+        appointment.clinical_notes = clinical_notes
     db.commit()
     db.refresh(appointment)
 
-    return jsonify({"code": 200, "message": "Status updated successfully", "data": appointment.json()}), 200
+    return jsonify({"code": 200, "message": "Appointment updated successfully", "data": appointment.json()}), 200
 
 
 if __name__ == "__main__":

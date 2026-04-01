@@ -36,10 +36,19 @@ class QueueEntry(Base):
     patient_id = Column(String(64), nullable=False)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
+    def json(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 with app.app_context():
     Base.metadata.create_all(bind=engine)
 
+
+# ── Helpers ──────────────────────────────────────────────────────
 
 def get_db():
     if "db" not in g:
@@ -62,19 +71,34 @@ def error_response(status_code, message, error_code, payload=None):
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(err):
+    app.logger.exception("Unhandled exception")
     if isinstance(err, HTTPException):
         return error_response(
-            err.code or 500,
-            err.description,
+            err.code or 500, err.description,
             f"QUEUE-{err.code or 500}-HTTP",
             {"path": request.path, "method": request.method},
         )
     return error_response(
-        500,
-        "Internal server error",
-        "QUEUE-500-UNHANDLED",
+        500, "Internal server error", "QUEUE-500-UNHANDLED",
         {"path": request.path, "method": request.method, "error": str(err)},
     )
+
+
+# ── Routes ───────────────────────────────────────────────────────
+
+@app.route("/queue", methods=["GET"])
+def get_queue():
+    """
+    Get all patients currently in the queue.
+    ---
+    tags: [Queue]
+    responses:
+      200:
+        description: List of queue entries ordered by arrival time
+    """
+    db = get_db()
+    entries = db.query(QueueEntry).order_by(QueueEntry.created_at).all()
+    return jsonify({"code": 200, "data": [e.json() for e in entries]}), 200
 
 
 @app.route("/queue", methods=["POST"])
@@ -82,18 +106,15 @@ def create_queue_entry():
     """
     Add a patient to the queue.
     ---
-    tags:
-      - Queue
-    consumes:
-      - application/json
+    tags: [Queue]
+    consumes: [application/json]
     parameters:
       - in: body
         name: body
         required: true
         schema:
           type: object
-          required:
-            - patient_id
+          required: [patient_id]
           properties:
             patient_id:
               type: string
@@ -147,7 +168,7 @@ def create_queue_entry():
 
     patient_id = data.get("patient_id")
     if not patient_id:
-        return error_response(400, "patient_id is required", "QUEUE-400-MISSING_FIELDS", {"patient_id": patient_id})
+        return error_response(400, "patient_id is required", "QUEUE-400-MISSING_FIELDS")
 
     existing = db.query(QueueEntry).filter(QueueEntry.patient_id == patient_id).first()
     if existing:
@@ -160,8 +181,7 @@ def create_queue_entry():
     db.refresh(entry)
 
     queue_position = db.query(func.count(QueueEntry.id)).scalar()
-
-    return jsonify({"code": 201, "queue_id": entry.id, "queue_position": queue_position}), 201
+    return jsonify({"code": 201, "queue_id": entry.id, "queue_position": queue_position, "data": entry.json()}), 201
 
 
 @app.route("/queue/position/<string:patient_id>", methods=["GET"])
@@ -169,40 +189,17 @@ def get_queue_position(patient_id):
     """
     Get a patient's current position in the queue.
     ---
-    tags:
-      - Queue
+    tags: [Queue]
     parameters:
       - in: path
         name: patient_id
         type: string
         required: true
-        example: "10000001"
     responses:
       200:
         description: Queue position retrieved
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-              example: 200
-            patient_id:
-              type: string
-              example: "10000001"
-            queue_position:
-              type: integer
-              example: 2
       404:
         description: Patient not found in queue
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-              example: 404
-            message:
-              type: string
-              example: "Patient not found in queue"
     """
     db = get_db()
     entry = db.query(QueueEntry).filter(QueueEntry.patient_id == patient_id).first()
@@ -215,33 +212,14 @@ def get_queue_position(patient_id):
 @app.route("/queue/head", methods=["DELETE"])
 def dequeue_head():
     """
-    Remove the patient at the head of the queue and return their ID.
+    Remove and return the patient at the head of the queue.
     ---
-    tags:
-      - Queue
+    tags: [Queue]
     responses:
       200:
         description: Head of queue removed
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-              example: 200
-            patient_id:
-              type: string
-              example: "10000001"
       404:
         description: Queue is empty
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-              example: 404
-            message:
-              type: string
-              example: "Queue is empty"
     """
     db = get_db()
     entry = db.query(QueueEntry).order_by(QueueEntry.created_at).first()
@@ -251,6 +229,32 @@ def dequeue_head():
     db.delete(entry)
     db.commit()
     return jsonify({"code": 200, "patient_id": patient_id}), 200
+
+
+@app.route("/queue/<int:entry_id>", methods=["DELETE"])
+def remove_queue_entry(entry_id):
+    """
+    Remove a specific patient from the queue by entry ID.
+    ---
+    tags: [Queue]
+    parameters:
+      - in: path
+        name: entry_id
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Queue entry removed
+      404:
+        description: Queue entry not found
+    """
+    db = get_db()
+    entry = db.get(QueueEntry, entry_id)
+    if not entry:
+        return error_response(404, "Queue entry not found", "QUEUE-404-NOT_FOUND", {"entry_id": entry_id})
+    db.delete(entry)
+    db.commit()
+    return jsonify({"code": 200, "message": "Queue entry removed"}), 200
 
 
 if __name__ == "__main__":

@@ -31,18 +31,20 @@ const appointments = computed<Appointment[]>(() =>
 // helpers
 const SKELETON_ROWS = 3
 
-type Severity = 'success' | 'warn' | 'info'
+type Severity = 'success' | 'warn' | 'info' | 'danger'
 
 const statusSeverity: Record<AppointmentStatus, Severity> = {
   CONFIRMED: 'success',
   PENDING_PAYMENT: 'warn',
   PAID: 'info',
+  NO_SHOW: 'danger',
 }
 
 const statusLabel: Record<AppointmentStatus, string> = {
   CONFIRMED: 'Confirmed',
   PENDING_PAYMENT: 'Pending Payment',
   PAID: 'Paid',
+  NO_SHOW: 'No Show',
 }
 
 function formatDateTime(iso: string): string {

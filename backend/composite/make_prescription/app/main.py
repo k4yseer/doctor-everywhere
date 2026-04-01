@@ -15,6 +15,7 @@ Swagger(app)  # Swagger UI at /apidocs
 # ─── Service URLs ──────────────────────────────────────────────────────────────
 PATIENT_SERVICE_URL    = os.environ.get("PATIENT_SERVICE_URL",    "http://patient-service:5003")
 INVENTORY_SERVICE_URL  = os.environ.get("INVENTORY_SERVICE_URL",  "http://inventory-service:5009")
+APPOINTMENT_SERVICE_URL = os.environ.get("APPOINTMENT_SERVICE_URL", "http://appointment-service:5002")
 PRESCRIPTION_SERVICE_URL = os.environ.get(
     "PRESCRIPTION_SERVICE_URL", 
     "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI")
@@ -44,7 +45,7 @@ def publish_message(routing_key: str, message: dict):
 
 
 # ─── Main Endpoint ─────────────────────────────────────────────────────────────
-@app.route("/make-prescription", methods=["POST"])
+@app.route("/api/make-prescription", methods=["POST"])
 def make_prescription():
     """
     Composite: orchestrate allergy check, inventory reservation, and prescription creation.
@@ -59,19 +60,24 @@ def make_prescription():
               type: integer
             patient_id:
               type: string
-            drug_code:
-              type: string
-            medication_name:
-              type: string
-            dosage_instructions:
-              type: string
-            dispense_quantity:
-              type: integer
+            medicines:
+              type: array
+              items:
+                type: object
+                properties:
+                  medicine_code:
+                    type: string
+                  dosage_instructions:
+                    type: string
+                  dispense_quantity:
+                    type: integer
             mc_start_date:
               type: string
               format: date
             mc_duration_days:
               type: integer
+            consultation_notes:
+              type: string
     responses:
       201:
         description: Prescription created successfully
@@ -84,14 +90,12 @@ def make_prescription():
 
     appointment_id      = data.get("appointment_id")
     patient_id          = data.get("patient_id")
-    drug_code           = data.get("drug_code")
-    medication_name     = data.get("medication_name")
-    dosage_instructions = data.get("dosage_instructions")
-    dispense_quantity   = data.get("dispense_quantity")
+    medicines           = data.get("medicines", [])
     mc_start_date       = data.get("mc_start_date")
     mc_duration_days    = data.get("mc_duration_days")
+    consultation_notes  = data.get("consultation_notes", "")
 
-    if not all([patient_id, drug_code, medication_name]) or appointment_id is None or dispense_quantity is None:
+    if not all([appointment_id, patient_id]):
         return jsonify({"code": 400, "message": "Missing required fields"}), 400
 
     try:
@@ -117,11 +121,13 @@ def make_prescription():
         if allergy_resp.status_code == 200:
             allergies = allergy_resp.json().get("data", [])
             allergy_list = [a.get("allergy", "").lower() for a in allergies]
-            if medication_name.lower() in allergy_list:
-                return jsonify({
-                    "code": 400,
-                    "message": f"Patient is allergic to {medication_name}"
-                }), 400
+            for medicine in medicines:
+                medication_name = medicine.get("medication_name", "")
+                if medication_name and medication_name.lower() in allergy_list:
+                    return jsonify({
+                        "code": 400,
+                        "message": f"Patient is allergic to {medication_name}"
+                    }), 400
         elif allergy_resp.status_code != 404:
             # 404 just means no allergies on record — that's fine
             raise Exception(f"Patient service returned {allergy_resp.status_code}")
@@ -130,62 +136,120 @@ def make_prescription():
         _publish_error("patient_service", "PATIENT-500", str(e), data)
         return jsonify({"code": 500, "message": "Failed to verify patient allergies"}), 500
 
-    # ── Step 5: Check and reserve inventory ────────────────────────────────────
+    # ── Step 5: Check and reserve inventory for all medicines ──────────────────
+    reservations = []
+    for medicine in medicines:
+        medicine_code = medicine.get("medicine_code")
+        dispense_quantity = medicine.get("dispense_quantity", 0)
+        if medicine_code and medicine_code != "MC":
+            try:
+                stock_resp = requests.get(
+                    f"{INVENTORY_SERVICE_URL}/inventory/{medicine_code}",
+                    timeout=5
+                )
+                if stock_resp.status_code != 200:
+                    pass # Legacy API graceful fallback
+
+                stock = stock_resp.json().get("data", {})
+                if stock and stock.get("stock_available", 0) < dispense_quantity:
+                    return jsonify({"code": 400, "message": f"Insufficient stock for {medicine_code}"}), 400
+
+                reserve_resp = requests.post(
+                    f"{INVENTORY_SERVICE_URL}/inventory/reservations/",
+                    json={
+                        "medicine_code": medicine_code,
+                        "appointment_id": int(appointment_id),
+                        "amount": int(dispense_quantity)
+                    },
+                    timeout=5
+                )
+                if reserve_resp.status_code not in (200, 201):
+                    raise Exception(f"Reservation failed for {medicine_code}: {reserve_resp.text}")
+
+                reservations.append(reserve_resp.json().get("data", {}))
+
+            except Exception as e:
+                _publish_error("inventory_service", "INVENTORY-500", str(e), data)
+                return jsonify({"code": 500, "message": "Failed to reserve inventory"}), 500
+
+    # ── Step 7: Create prescription records via OutSystems ─────────────────────
+    out_prescriptions = []
+    
+    # Send empty prescription just for MC if no medicines exist
+    if not medicines and (mc_start_date and mc_duration_days):
+        try:
+            prescription_resp = requests.post(
+                f"{PRESCRIPTION_SERVICE_URL}/CreatePrescription",
+                json={
+                    "appointment_id":      str(appointment_id),
+                    "patient_id":          str(patient_id),
+                    "medicine_code":       "MC",
+                    "dosage_instructions": "-",
+                    "dispense_quantity":   0,
+                    "mc_start_date":       mc_start_date,
+                    "mc_duration_days":    int(mc_duration_days) if mc_duration_days else 0,
+                },
+                timeout=5
+            )
+            if prescription_resp.status_code not in (200, 201):
+                raise Exception(f"Prescription service returned {prescription_resp.status_code}: {prescription_resp.text}")
+
+            prescription = prescription_resp.json()
+            prescription_id = prescription if isinstance(prescription, int) else prescription.get("data", {}).get("prescription_id")
+            if prescription_id:
+                out_prescriptions.append({"prescription_id": prescription_id})
+        except Exception as e:
+            _publish_error("prescription_service", "PRESCRIPTION-500", str(e), data)
+            return jsonify({"code": 500, "message": "Failed to create MC prescription record"}), 500
+
+    else:
+        for i, medicine in enumerate(medicines):
+            try:
+                medicine_code = medicine.get("medicine_code") or ""
+                
+                prescription_resp = requests.post(
+                    f"{PRESCRIPTION_SERVICE_URL}/CreatePrescription",
+                    json={
+                        "appointment_id":      str(appointment_id),
+                        "patient_id":          str(patient_id),
+                        "medicine_code":       medicine_code,
+                        "dosage_instructions": medicine.get("dosage_instructions") or "",
+                        "dispense_quantity":   int(medicine.get("dispense_quantity") or 0),
+                        "mc_start_date":       mc_start_date if mc_start_date else "1900-01-01",
+                        "mc_duration_days":    int(mc_duration_days) if mc_duration_days else 0,
+                    },
+                    timeout=5
+                )
+                if prescription_resp.status_code not in (200, 201):
+                    raise Exception(f"Prescription service returned {prescription_resp.status_code}: {prescription_resp.text}")
+
+                prescription = prescription_resp.json()
+                prescription_id = prescription if isinstance(prescription, int) else prescription.get("data", {}).get("prescription_id")
+                if prescription_id:
+                    out_prescriptions.append({"prescription_id": prescription_id})
+                    
+            except Exception as e:
+                _publish_error("prescription_service", "PRESCRIPTION-500", str(e), data)
+                return jsonify({"code": 500, "message": f"Failed to create prescription record for {medicine_code}"}), 500
+
+    # ── Step 8: Update Appointment Status and Notes ───────────────────────────────
     try:
-        stock_resp = requests.get(
-            f"{INVENTORY_SERVICE_URL}/inventory/medicines/",
+        payload = {"status": "PENDING_PAYMENT"}
+        if consultation_notes:
+            payload["clinical_notes"] = consultation_notes
+
+        print(f"[MAKE PRESCRIPTION] Updating appointment {appointment_id} to PENDING_PAYMENT")
+        appt_resp = requests.put(
+            f"{APPOINTMENT_SERVICE_URL}/appointments/{appointment_id}/status",
+            json=payload,
             timeout=5
         )
-        medicines = stock_resp.json()
-        stock = next((m for m in medicines if m["medicine_code"] == drug_code), None)
-        if not stock:
-            return jsonify({"code": 400, "message": f"Drug {drug_code} not found in inventory"}), 400
-        if stock["stock_available"] < dispense_quantity:
-            return jsonify({"code": 400, "message": "Insufficient stock"}), 400
-        
-        reserve_resp = requests.post(
-            f"{INVENTORY_SERVICE_URL}/inventory/reservations/",
-            json={
-                "medicine_code": drug_code,
-                "appointment_id": appointment_id,
-                "amount": dispense_quantity
-            },
-            timeout=5
-        )
-        if reserve_resp.status_code not in (200, 201):
-            raise Exception(f"Reservation failed: {reserve_resp.text}")
-
-        reservation = reserve_resp.json().get("reservation", {})
-
+        print(f"[MAKE PRESCRIPTION] Appointment update response: {appt_resp.status_code} {appt_resp.text}")
+        if appt_resp.status_code != 200:
+            raise Exception(f"Appointment service returned {appt_resp.status_code}")
     except Exception as e:
-        _publish_error("inventory_service", "INVENTORY-500", str(e), data)
-        return jsonify({"code": 500, "message": "Failed to reserve inventory"}), 500
-
-    # ── Step 7: Create prescription record ─────────────────────────────────────
-    try:
-        prescription_resp = requests.post(
-            f"{PRESCRIPTION_SERVICE_URL}/CreatePrescription",
-            json={
-                "appointment_id":      appointment_id,
-                "patient_id":          patient_id,
-                "medication_name":     medication_name,
-                "dosage_instructions": dosage_instructions,
-                "dispense_quantity":   dispense_quantity,
-                "mc_start_date":       mc_start_date,
-                "mc_duration_days":    mc_duration_days,
-                "drug_code": drug_code
-            },
-            timeout=5
-        )
-        if prescription_resp.status_code not in (200, 201):
-            raise Exception(f"Prescription service returned {prescription_resp.status_code}")
-
-        response_json = prescription_resp.json()
-        prescription = response_json if isinstance(response_json, dict) else {"prescription_id": response_json}
-
-    except Exception as e:
-        _publish_error("prescription_service", "PRESCRIPTION-500", str(e), data)
-        return jsonify({"code": 500, "message": "Failed to create prescription record"}), 500
+        _publish_error("appointment_service", "APPOINTMENT-500", str(e), data)
+        print(f"[MAKE PRESCRIPTION] Failed to update appointment status: {e}")
 
     # ── Step 10: Publish PRESCRIPTION_MADE for Resend notification ─────────────
     publish_message(
@@ -193,10 +257,10 @@ def make_prescription():
         message={
             "patient_id":      patient_id,
             "appointment_id":  appointment_id,
-            "medication_name": medication_name,
+            "medicines":       [{"name": m.get("medication_name"), "quantity": m.get("dispense_quantity")} for m in medicines],
             "mc_start_date":   mc_start_date,
             "mc_duration_days": mc_duration_days,
-            "prescription_id": prescription.get("prescription_id")
+            "prescription_ids": [p.get("prescription_id") for p in out_prescriptions]
         }
     )
 
@@ -204,8 +268,8 @@ def make_prescription():
         "code": 201,
         "message": "Prescription created successfully",
         "data": {
-            "prescription": prescription,
-            "reservation":  reservation
+            "prescriptions": out_prescriptions,
+            "reservations":  reservations
         }
     }), 201
 

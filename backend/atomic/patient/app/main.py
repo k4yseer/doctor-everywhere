@@ -187,5 +187,55 @@ def find_by_id(patient_id):
     return error_response(404, "Patient not found.", "PATIENT-404-NOT_FOUND",
                           {"patient_id": patient_id})
 
+
+@app.route("/patients/<string:patient_id>/allergies", methods=['GET'])
+def get_patient_allergies(patient_id):
+    """
+    Get patient allergies
+    ---
+    parameters:
+      - name: patient_id
+        in: path
+        type: string
+        required: true
+        example: "10000001"
+    responses:
+      200:
+        description: List of patient allergies
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  allergy:
+                    type: string
+                    example: "Penicillin"
+      404:
+        description: Patient not found
+    """
+    patient = get_db().scalar(
+        select(Patient).filter_by(patient_id=patient_id)
+    )
+
+    if not patient:
+        return error_response(404, "Patient not found", "PATIENT-404-NOT_FOUND",
+                              {"patient_id": patient_id})
+
+    allergies = get_db().scalars(
+        select(Allergies.allergy).filter_by(patient_id=patient_id)
+    ).all()
+
+    return jsonify({
+        "code": 200,
+        "data": [{"allergy": a} for a in allergies]
+    })
+
+
 if __name__ == '__main__':
     app.run(port=5003, debug=True)

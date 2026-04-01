@@ -6,6 +6,12 @@ export interface QueueEntry {
   waiting_time: number;
 }
 
+export interface QueuePatient {
+  id: number;
+  patient_id: string;
+  created_at: string;
+}
+
 export const QueueService = {
   async joinQueue(patient_id: string): Promise<QueueEntry> {
     const { data } = await apiClient.post<QueueEntry>("/join-queue", { patient_id });
@@ -16,4 +22,11 @@ export const QueueService = {
     const { data } = await apiClient.get<QueueEntry>(`/join-queue/status/${patient_id}`);
     return { queue_id: data.queue_id, queue_position: data.queue_position, waiting_time: data.waiting_time };
   },
+
+  async getAll(): Promise<{ code: number; data: QueuePatient[] }> {
+    const { data } = await apiClient.get<{ code: number; data: QueuePatient[] }>("/queue");
+    return data;
+  },
 };
+
+export default QueueService;

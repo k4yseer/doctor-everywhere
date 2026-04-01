@@ -1,3 +1,4 @@
+import math
 import os
 import requests
 from flask import Flask, jsonify, request
@@ -54,7 +55,7 @@ def _get_status_data(patient_id, available_doctors_count):
     body = pos_res.json()
     queue_position = body.get("queue_position")
     return {"queue_id": body.get("queue_id"), "queue_position": queue_position,
-            "waiting_time": (queue_position - 1) // available_doctors_count * 10}
+            "waiting_time": math.ceil(queue_position / available_doctors_count) * 10}
 
 
 @app.errorhandler(UpstreamError)
@@ -79,7 +80,7 @@ def handle_unexpected_error(err):
     )
 
 
-@app.route("/join-queue", methods=["POST"])
+@app.route("/api/join-queue", methods=["POST"])
 def join_queue():
     """
     Add a patient to the consultation queue.
@@ -179,7 +180,7 @@ def join_queue():
     queue_body = queue_res.json()
     queue_id = queue_body.get("queue_id")
     queue_position = queue_body.get("queue_position")
-    waiting_time = (queue_position - 1) // available_doctors_count * 10
+    waiting_time = math.ceil(queue_position / available_doctors_count) * 10
     return jsonify({
         "code": queue_res.status_code,
         "queue_id": queue_id,
@@ -189,7 +190,7 @@ def join_queue():
     }), queue_res.status_code
 
 
-@app.route("/join-queue/status/<string:patient_id>", methods=["GET"])
+@app.route("/api/join-queue/status/<string:patient_id>", methods=["GET"])
 def get_queue_status(patient_id):
     """
     Get a patient's current queue position and estimated wait time.

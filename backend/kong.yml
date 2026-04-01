@@ -7,7 +7,7 @@ services:
     routes:
       - name: setup-consultation-route
         paths:
-          - /api/setup-consultation
+          - /setup-consultation
         strip_path: false
 
   - name: join-queue-service
@@ -15,9 +15,13 @@ services:
     routes:
       - name: join-queue-route
         paths:
-          - /api/join-queue
+          - /join-queue
         strip_path: false
-
+      - name: join-queue-status-route
+        paths:
+          - ~/join-queue/status/(.+)
+        strip_path: false
+        
   - name: get-consultation-history-service
     url: http://get-consultation-history-service:5013
     routes:
@@ -39,7 +43,7 @@ services:
     routes:
       - name: make-prescription-route
         paths:
-          - /api/make-prescription
+          - /make-prescription
         strip_path: false
   
   - name: rabbitmq-native-api
@@ -48,52 +52,6 @@ services:
       - name: outsystems-rabbitmq-route
         paths:
           - /api/webhook/rabbitmq
-        strip_path: true
-
-  # ── Atomic services ──────────────────────────────────────────────
-  # Strategy: service URL includes the backend route prefix (e.g. /queue).
-  # Kong strips /api/queue, appends the remainder to the service URL,
-  # so /api/queue/head → strip → /head → upstream /queue/head. ✓
-
-  - name: inventory-atomic-service
-    url: http://inventory-service:5009/inventory
-    routes:
-      - name: inventory-route
-        paths:
-          - /api/inventory
-        strip_path: true
-
-  - name: queue-atomic-service
-    url: http://queue-service:5011/queue
-    routes:
-      - name: queue-route
-        paths:
-          - /api/queue
-        strip_path: true
-
-  - name: patient-atomic-service
-    url: http://patient-service:5003/patients
-    routes:
-      - name: patient-route
-        paths:
-          - /api/patients
-        strip_path: true
-
-  # Singular /patient routes (details, check-allergies)
-  - name: patient-singular-service
-    url: http://patient-service:5003/patient
-    routes:
-      - name: patient-singular-route
-        paths:
-          - /api/patient
-        strip_path: true
-
-  - name: appointment-atomic-service
-    url: http://appointment-service:5002/appointments
-    routes:
-      - name: appointment-route
-        paths:
-          - /api/appointments
         strip_path: true
 
 plugins:

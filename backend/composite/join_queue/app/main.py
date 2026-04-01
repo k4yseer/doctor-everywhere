@@ -79,7 +79,7 @@ def handle_unexpected_error(err):
     )
 
 
-@app.route("/join-queue", methods=["POST"])
+@app.route("/api/join-queue", methods=["POST"])
 def join_queue():
     """
     Add a patient to the consultation queue.
@@ -199,7 +199,7 @@ def join_queue():
     }), 201
 
 
-@app.route("/join-queue/status/<string:patient_id>", methods=["GET"])
+@app.route("/api/join-queue/status/<string:patient_id>", methods=["GET"])
 def get_queue_status(patient_id):
     """
     Get a patient's current queue position and estimated wait time.

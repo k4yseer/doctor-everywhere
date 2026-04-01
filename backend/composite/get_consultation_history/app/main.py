@@ -276,6 +276,7 @@ class Appointment:
     appointment_id: int
     date: Optional[str]
     status: str
+    clinical_notes: Optional[str]
     _patient_id: strawberry.Private[int]
     _mc_cache: strawberry.Private[Optional[MC]] = None
     _prescriptions_cache: strawberry.Private[Optional[list[Prescription]]] = None
@@ -385,6 +386,7 @@ class Query:
                     appointment_id=appointment_id_int,
                     date=appt.get("date") or appt.get("slot_datetime"),
                     status=_friendly_status(appt.get("status")),
+                    clinical_notes=appt.get("clinical_notes"),
                     _patient_id=appt_patient_id,
                 )
             )

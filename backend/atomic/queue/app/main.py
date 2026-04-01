@@ -113,6 +113,20 @@ def create_queue_entry():
             queue_position:
               type: integer
               example: 4
+      200:
+        description: Patient already in the queue — current position returned
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            queue_id:
+              type: integer
+              example: 3
+            queue_position:
+              type: integer
+              example: 2
       400:
         description: Missing or invalid request body
         schema:
@@ -124,17 +138,6 @@ def create_queue_entry():
             message:
               type: string
               example: "patient_id is required"
-      409:
-        description: Patient is already in the queue
-        schema:
-          type: object
-          properties:
-            code:
-              type: integer
-              example: 409
-            message:
-              type: string
-              example: "Patient is already in the queue"
     """
     db = get_db()
     data = request.get_json()
@@ -148,7 +151,8 @@ def create_queue_entry():
 
     existing = db.query(QueueEntry).filter(QueueEntry.patient_id == patient_id).first()
     if existing:
-        return error_response(409, "Patient is already in the queue", "QUEUE-409-DUPLICATE", {"patient_id": patient_id})
+        position = db.query(func.count(QueueEntry.id)).filter(QueueEntry.created_at <= existing.created_at).scalar()
+        return jsonify({"code": 200, "queue_id": existing.id, "queue_position": position}), 200
 
     entry = QueueEntry(patient_id=patient_id, created_at=datetime.now(timezone.utc))
     db.add(entry)

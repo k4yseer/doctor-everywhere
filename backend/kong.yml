@@ -100,7 +100,7 @@ plugins:
   - name: cors
     config:
       origins:
-        - "*"             
+        - "*"
       methods:
         - GET
         - POST
@@ -116,12 +116,12 @@ plugins:
         - X-Auth-Token
       credentials: true
       max_age: 3600
+
   - name: cors
-    route:
-      - get-consultation-history-route   # your GraphQL route
+    route: get-consultation-history-route
     config:
       origins:
-        - "http://localhost:5173"       # frontend origin
+        - "http://localhost:5173"
       methods:
         - GET
         - POST
@@ -129,12 +129,13 @@ plugins:
       headers:
         - Accept
         - Content-Type
-        - Authorization   # if you use JWT
+        - Authorization
       exposed_headers:
         - X-Auth-Token
       credentials: true
       max_age: 3600
       preflight_continue: false
+
   - name: prometheus
     config:
       status_code_metrics: true

@@ -89,6 +89,15 @@ def get_db():
     return g.db
 
 
+@app.route("/inventory/<string:medicine_code>", methods=["GET"])
+def get_medicine(medicine_code):
+    db = get_db()
+    medicine = db.query(Medicine).filter_by(medicine_code=medicine_code).first()
+    if not medicine:
+        return jsonify({"code": 404, "message": f"Medicine '{medicine_code}' not found in inventory"}), 404
+    return jsonify({"data": medicine.json()}), 200
+
+
 @app.teardown_appcontext
 def close_db(exception=None):
     db = g.pop('db', None)

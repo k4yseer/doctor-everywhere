@@ -155,53 +155,84 @@ export const PostConsultService = {
       return buildMockData();
     }
 
-    const { data } = await apiClient.get(`/consultation-history/${patient_id}`);
-    
-    // Take the most recent consultation (last in array)
-    const raw = data[data.length - 1];
+    const query = `
+      query ($patientId: Int!) {
+        consultationHistory(patientId: $patientId) {
+          appointmentId
+          date
+          status
+          prescriptions {
+            drugName
+            quantity
+          }
+          billing {
+            amount
+            paymentStatus
+            deliveryStatus
+          }
+        }
+      }
+    `;
 
+    const { data } = await apiClient.post("/graphql", {
+      query,
+      variables: { patientId: patient_id },
+    });
+
+    const rawData = data?.data?.consultationHistory;
+    if (!Array.isArray(rawData) || rawData.length === 0) {
+      throw new Error("No consultation data found");
+    }
+
+    // Take the most recent consultation
+    const raw = rawData[rawData.length - 1];
     return {
       appointment: {
-        id: raw.appointment_id,
-        consult_id: String(raw.appointment_id),
-        patient_id: patient_id,
-        doctor: {
-          id: 0,
-          name: "Unknown",
-          specialty: "Unknown",
-        },
+        id: raw.appointmentId,
+        consult_id: String(raw.appointmentId),
+        patient_id,
+        doctor: { id: 0, name: "Unknown", specialty: "Unknown" },
         datetime: raw.date,
         notes: "",
         status: raw.status,
       },
       prescription: {
         id: 0,
-        items: raw.prescriptions ?? [],
+        items: raw.prescriptions?.map((p: any, idx: number) => ({
+          id: idx + 1,
+          name: p.drugName,
+          dosage: "",
+          frequency: "",
+          duration: "",
+          quantity: p.quantity,
+          unit: "",
+          instructions: "",
+        })) ?? [],
       },
       invoice: {
-        id: raw.appointment_id,
+        id: raw.appointmentId,
         consultation_fee: raw.billing?.amount ?? 0,
         medicine_fee: 0,
         total: raw.billing?.amount ?? 0,
-        status: raw.billing?.payment_status === "Paid" ? "PAID" : "PENDING_PAYMENT",
+        status: raw.billing?.paymentStatus === "Paid" ? "PAID" : "PENDING_PAYMENT",
         currency: "SGD",
       },
-      delivery: raw.billing?.delivery_status
+      delivery: raw.billing?.deliveryStatus
         ? {
             id: 0,
             tracking_number: "",
             address: "",
-            status: raw.billing.delivery_status === "Delivered"
-              ? "DELIVERED"
-              : raw.billing.delivery_status === "Dispatched"
-              ? "DISPATCHED"
-              : "PENDING",
+            status:
+              raw.billing.deliveryStatus === "Delivered"
+                ? "DELIVERED"
+                : raw.billing.deliveryStatus === "Dispatched"
+                ? "DISPATCHED"
+                : "PENDING",
             estimated_date: "",
           }
         : null,
     };
   },
-
   async scheduleDelivery(appointment_id: number, patient_address: string): Promise<Delivery> {
     if (USE_MOCK) {
       await mockDelay(900);

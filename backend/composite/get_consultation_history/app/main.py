@@ -79,7 +79,13 @@ def _default_mc():
 
 
 def _default_billing():
-    return {"amount": 0.0, "payment_status": "Pending", "delivery_status": "Pending"}
+    return {
+        "amount": 0.0,
+        "consultation_fee": 0.0,
+        "medicine_fee": 0.0,
+        "payment_status": "Pending",
+        "delivery_status": "Pending",
+    }
 
 
 def _extract_prescription_block(appointment_id):
@@ -142,11 +148,7 @@ def _extract_invoice_block(appointment_id):
     billing = _default_billing()
     invoice_id = None
 
-    # Required endpoint from spec.
-    res = _safe_get(f"{INVOICE_URL}/invoices/appointment/{appointment_id}")
-    # Fallback to currently implemented atomic invoice endpoint.
-    if res and res.status_code == 404:
-        res = _safe_get(f"{INVOICE_URL}/invoices/{appointment_id}")
+    res = _safe_get(f"{INVOICE_URL}/invoices/{appointment_id}")
 
     if not res or res.status_code == 404:
         return billing, invoice_id
@@ -159,7 +161,20 @@ def _extract_invoice_block(appointment_id):
         return billing, invoice_id
 
     if isinstance(payload, dict):
-        amount = payload.get("amount", 0)
+        consultation_fee = payload.get("consultation_fee", 0)
+        medicine_fee = payload.get("medicine_fee", 0)
+        amount = payload.get("amount", consultation_fee + medicine_fee)
+
+        try:
+            billing["consultation_fee"] = float(consultation_fee)
+        except (TypeError, ValueError):
+            billing["consultation_fee"] = 0.0
+
+        try:
+            billing["medicine_fee"] = float(medicine_fee)
+        except (TypeError, ValueError):
+            billing["medicine_fee"] = 0.0
+
         try:
             billing["amount"] = float(amount)
         except (TypeError, ValueError):

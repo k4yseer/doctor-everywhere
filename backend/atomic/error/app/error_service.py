@@ -52,8 +52,6 @@ class Error(Base):
         }
 
 
-# Create tables if they don't exist
-Base.metadata.create_all(engine)
 
 
 # ─── AMQP Consumer ─────────────────────────────────────────────────────────────
@@ -109,13 +107,20 @@ def process_error_message(ch, method, properties, body):
 
 def start_amqp_consumer():
     """Start RabbitMQ consumer in a background daemon thread with retry/backoff."""
+    print("[ERROR SERVICE] AMQP consumer thread starting...")
     retry_delay_seconds = 2
     max_retry_delay_seconds = 30
 
     while True:
         connection = None
         try:
-            connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
+            print(f"[ERROR SERVICE] Trying to connect to AMQP at {AMQP_URL} ...")
+            params = pika.URLParameters(AMQP_URL)
+            params.socket_timeout = 10
+            params.connection_attempts = 3
+            params.retry_delay = 2
+            connection = pika.BlockingConnection(params)
+            print("[ERROR SERVICE] AMQP connected!")
             channel = connection.channel()
 
             channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
@@ -219,9 +224,22 @@ def resolve_error(error_id):
     finally:
         session.close()
 
+def wait_for_db(max_retries=10, delay=3):
+    for i in range(max_retries):
+        try:
+            with engine.connect() as conn:
+                print("[ERROR SERVICE] Database is ready!")
+                return
+        except Exception:
+            print(f"[ERROR SERVICE] DB not ready, retrying... ({i+1}/{max_retries})")
+            time.sleep(delay)
+    raise Exception("Database not ready after retries")
+
 
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    wait_for_db()
+    Base.metadata.create_all(engine)
     consumer_thread = threading.Thread(target=start_amqp_consumer, daemon=True)
     consumer_thread.start()
 

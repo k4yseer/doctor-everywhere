@@ -23,8 +23,8 @@ services:
     routes:
       - name: get-consultation-history-route
         paths:
-          - /api/get-consultation-history
-        strip_path: true
+          - /graphql
+        strip_path: false
 
   - name: make-payment 
     url: http://make-payment:5016 
@@ -116,6 +116,25 @@ plugins:
         - X-Auth-Token
       credentials: true
       max_age: 3600
+  - name: cors
+    route:
+      - get-consultation-history-route   # your GraphQL route
+    config:
+      origins:
+        - "http://localhost:5173"       # frontend origin
+      methods:
+        - GET
+        - POST
+        - OPTIONS
+      headers:
+        - Accept
+        - Content-Type
+        - Authorization   # if you use JWT
+      exposed_headers:
+        - X-Auth-Token
+      credentials: true
+      max_age: 3600
+      preflight_continue: false
   - name: prometheus
     config:
       status_code_metrics: true

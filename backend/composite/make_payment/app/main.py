@@ -103,7 +103,11 @@ def make_payment():
         return error_response(400, "Missing required fields", "MAKE-PAYMENT-400-MISSING_FIELDS")
 
     transaction_id = upstream.process_payment(amount, currency, payment_method_id)
-    invoice_data = upstream.create_invoice(appointment_id, patient_id, amount, currency, transaction_id)
+    invoice_data = upstream.get_invoice(appointment_id)
+    if invoice_data:
+        invoice_data = upstream.update_invoice_status(appointment_id, transaction_id)
+    else:
+        invoice_data = upstream.create_invoice(appointment_id, patient_id, amount, currency, transaction_id)
     upstream.update_appointment_status(appointment_id)
     delivery_data = upstream.create_delivery_order(appointment_id, patient_address)
     reservation_data = upstream.reserve_inventory(medicine_code, appointment_id, reserve_amount)

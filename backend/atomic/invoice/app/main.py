@@ -28,6 +28,8 @@ class Invoice(Base):
     invoice_id = Column(String(64), primary_key=True)
     appointment_id = Column(String(64), nullable=False)
     patient_id = Column(String(64), nullable=False)
+    consultation_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
+    medicine_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
     amount = Column(Numeric(10, 2), nullable=False)
     currency = Column(String(8), nullable=False)
     payment_status = Column(String(32), nullable=False)
@@ -39,6 +41,8 @@ class Invoice(Base):
             'invoice_id': self.invoice_id,
             'appointment_id': self.appointment_id,
             'patient_id': self.patient_id,
+            'consultation_fee': float(self.consultation_fee),
+            'medicine_fee': float(self.medicine_fee),
             'amount': float(self.amount),
             'currency': self.currency,
             'payment_status': self.payment_status,
@@ -192,10 +196,17 @@ def create_invoice(appt_id):
     if not data:
         return jsonify({'code': 400, 'message': 'Request body is required'}), 400
 
-    required = ['patient_id', 'amount', 'currency', 'payment_status']
+    required = ['patient_id', 'currency', 'payment_status']
     missing = [f for f in required if f not in data]
     if missing:
         return jsonify({'code': 400, 'message': 'Missing required fields: ' + ', '.join(missing)}), 400
+
+    consultation_fee = float(data.get('consultation_fee', 0.0))
+    medicine_fee = float(data.get('medicine_fee', 0.0))
+    if 'amount' in data and 'consultation_fee' not in data and 'medicine_fee' not in data:
+        amount = float(data['amount'])
+    else:
+        amount = consultation_fee + medicine_fee
 
     db = get_db()
     exists = db.query(Invoice).filter_by(appointment_id=appt_id).first()
@@ -206,7 +217,9 @@ def create_invoice(appt_id):
         invoice_id=data.get('invoice_id', str(uuid.uuid4())),
         appointment_id=appt_id,
         patient_id=data['patient_id'],
-        amount=data['amount'],
+        consultation_fee=consultation_fee,
+        medicine_fee=medicine_fee,
+        amount=amount,
         currency=data['currency'],
         payment_status=data['payment_status'],
         stripe_charge_id=data.get('stripe_charge_id'),
@@ -218,6 +231,33 @@ def create_invoice(appt_id):
     db.refresh(invoice)
 
     return jsonify({'code': 201, 'data': invoice.json()}), 201
+
+
+@app.route('/invoices/<string:appt_id>', methods=['PUT'])
+def update_invoice(appt_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({'code': 400, 'message': 'Request body is required'}), 400
+
+    allowed = {'payment_status', 'stripe_charge_id'}
+    update_data = {k: v for k, v in data.items() if k in allowed}
+    if not update_data:
+        return jsonify({'code': 400, 'message': 'Nothing to update'}), 400
+
+    db = get_db()
+    invoice = db.query(Invoice).filter_by(appointment_id=appt_id).first()
+    if not invoice:
+        return jsonify({'code': 404, 'message': 'Invoice not found for appointment_id: ' + appt_id}), 404
+
+    if 'payment_status' in update_data:
+        invoice.payment_status = update_data['payment_status']
+    if 'stripe_charge_id' in update_data:
+        invoice.stripe_charge_id = update_data['stripe_charge_id']
+
+    db.commit()
+    db.refresh(invoice)
+
+    return jsonify({'code': 200, 'data': invoice.json()}), 200
 
 
 if __name__ == '__main__':

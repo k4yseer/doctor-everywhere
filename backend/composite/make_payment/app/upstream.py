@@ -57,6 +57,44 @@ def process_payment(amount, currency, payment_method_id):
     return transaction_id
 
 
+def get_invoice(appointment_id):
+    try:
+        res = requests.get(
+            f"{INVOICE_SERVICE_URL}/invoices/{appointment_id}",
+            timeout=10,
+        )
+    except requests.exceptions.RequestException:
+        _raise_for_connection("Invoice service", "MAKE-PAYMENT-503-INVOICE_UNREACHABLE")
+
+    if res.status_code == 404:
+        return None
+    if res.status_code not in (200, 201):
+        message = _get_error_message(res, "Invoice lookup failed")
+        raise UpstreamError(res.status_code, message, f"MAKE-PAYMENT-{res.status_code}-INVOICE")
+
+    return res.json().get("data", {})
+
+
+def update_invoice_status(appointment_id, transaction_id, payment_status="PAID"):
+    try:
+        res = requests.put(
+            f"{INVOICE_SERVICE_URL}/invoices/{appointment_id}",
+            json={
+                "payment_status": payment_status,
+                "stripe_charge_id": transaction_id,
+            },
+            timeout=10,
+        )
+    except requests.exceptions.RequestException:
+        _raise_for_connection("Invoice service", "MAKE-PAYMENT-503-INVOICE_UNREACHABLE")
+
+    if res.status_code not in (200, 201):
+        message = _get_error_message(res, "Invoice update failed")
+        raise UpstreamError(res.status_code, message, f"MAKE-PAYMENT-{res.status_code}-INVOICE")
+
+    return res.json().get("data", {})
+
+
 def create_invoice(appointment_id, patient_id, amount, currency, transaction_id):
     try:
         res = requests.post(
@@ -64,6 +102,8 @@ def create_invoice(appointment_id, patient_id, amount, currency, transaction_id)
             json={
                 "patient_id": patient_id,
                 "amount": amount / 100.0,
+                "consultation_fee": 0.0,
+                "medicine_fee": 0.0,
                 "currency": currency,
                 "payment_status": "PAID",
                 "stripe_charge_id": transaction_id,

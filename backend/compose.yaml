@@ -14,6 +14,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    volumes:
+      - ./seed_scripts:/usr/src/app/seed_scripts
 
   doctor-db:
     image: mysql:8.0
@@ -47,6 +49,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    volumes:
+      - ./seed_scripts:/usr/src/app/seed_scripts
 
   appointment-db:
     image: mysql:8.0
@@ -76,6 +80,8 @@ services:
     depends_on:
       patient-db:
         condition: service_healthy
+    volumes:
+      - ./seed_scripts:/usr/src/app/seed_scripts
   patient-db:
     image: mysql:8.0
     restart: always
@@ -117,6 +123,8 @@ services:
     depends_on:
       invoice-db:
         condition: service_healthy
+    volumes:
+      - ./seed_scripts:/usr/src/app/seed_scripts
 
   invoice-db:
     image: mysql:8.0
@@ -147,6 +155,8 @@ services:
     depends_on:
       delivery-db:
         condition: service_healthy
+    volumes:
+      - ./seed_scripts:/usr/src/app/seed_scripts
 
   delivery-db:
     image: mysql:8.0
@@ -234,6 +244,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    volumes:
+      - ./seed_scripts:/usr/src/app/seed_scripts
 
   inventory-db:
     image: mysql:8.0

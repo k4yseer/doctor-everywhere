@@ -5,11 +5,19 @@ from time import sleep
 
 import pika
 from flask import Flask, g, jsonify, request
+from flasgger import Swagger
 from sqlalchemy import Column, DateTime, Enum, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
+Swagger(app, template={
+    "info": {
+        "title": "Appointment Service API",
+        "version": "1.0.0",
+        "description": "Manages patient appointments, including creation and status updates.",
+    }
+})
 
 DB_URL = environ.get("dbURL", "mysql+pymysql://root:root@localhost:3306/appointment_db")
 AMQP_URL = environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
@@ -112,6 +120,58 @@ def handle_unexpected_error(err):
 
 @app.route("/appointments/<int:id>", methods=["GET"])
 def get_appointment(id):
+    """
+    Get a single appointment by ID.
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        example: 1
+    responses:
+      200:
+        description: Appointment details
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            data:
+              $ref: '#/definitions/Appointment'
+      404:
+        description: Appointment not found
+    definitions:
+      Appointment:
+        type: object
+        properties:
+          id:
+            type: integer
+            example: 1
+          patient_id:
+            type: integer
+            example: 10000001
+          doctor_id:
+            type: integer
+            example: 1
+          slot_datetime:
+            type: string
+            format: date-time
+            example: "2026-04-01T10:00:00"
+          start_url:
+            type: string
+            example: "https://zoom.us/s/123?zak=abc"
+          join_url:
+            type: string
+            example: "https://zoom.us/j/123"
+          status:
+            type: string
+            enum: [CONFIRMED, PENDING_PAYMENT, PAID, NO_SHOW]
+            example: "CONFIRMED"
+    """
     db = get_db()
     appointment = db.get(Appointment, id)
     if not appointment:
@@ -122,6 +182,31 @@ def get_appointment(id):
 
 @app.route("/appointments/patient/<int:patient_id>", methods=["GET"])
 def get_appointments_by_patient(patient_id):
+    """
+    Get all appointments for a specific patient.
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - in: path
+        name: patient_id
+        type: integer
+        required: true
+        example: 10000001
+    responses:
+      200:
+        description: List of appointments for the patient
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            data:
+              type: array
+              items:
+                $ref: '#/definitions/Appointment'
+    """
     db = get_db()
     appointments = db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
     
@@ -133,6 +218,57 @@ def get_appointments_by_patient(patient_id):
 
 @app.route("/appointments", methods=["POST"])
 def create_appointment():
+    """
+    Create a new appointment.
+    ---
+    tags:
+      - Appointments
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - patient_id
+            - doctor_id
+            - slot_datetime
+          properties:
+            patient_id:
+              type: integer
+              example: 10000001
+            doctor_id:
+              type: integer
+              example: 1
+            slot_datetime:
+              type: string
+              format: date-time
+              example: "2026-04-01T10:00:00"
+            start_url:
+              type: string
+              example: "https://zoom.us/s/123?zak=abc"
+            join_url:
+              type: string
+              example: "https://zoom.us/j/123"
+    responses:
+      201:
+        description: Appointment created successfully
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 201
+            appointment_id:
+              type: integer
+              example: 5
+            data:
+              $ref: '#/definitions/Appointment'
+      400:
+        description: Missing or invalid fields
+    """
     db = get_db()
     data = request.get_json()
 
@@ -178,6 +314,50 @@ def create_appointment():
 
 @app.route("/appointments/<int:id>/status", methods=["PUT"])
 def update_appointment_status(id):
+    """
+    Update the status of an appointment.
+    ---
+    tags:
+      - Appointments
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: id
+        type: integer
+        required: true
+        example: 1
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - status
+          properties:
+            status:
+              type: string
+              enum: [CONFIRMED, PENDING_PAYMENT, PAID, NO_SHOW]
+              example: "PAID"
+    responses:
+      200:
+        description: Appointment status updated
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            message:
+              type: string
+              example: "Status updated successfully"
+            data:
+              $ref: '#/definitions/Appointment'
+      400:
+        description: Invalid or missing status
+      404:
+        description: Appointment not found
+    """
     db = get_db()
     appointment = db.get(Appointment, id)
     if not appointment:

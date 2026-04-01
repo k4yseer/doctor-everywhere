@@ -399,6 +399,28 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
+  # ── Swagger UI (Aggregated API Docs) ─────────────────────────────────────
+  swagger-ui:
+    build:
+      context: ./swagger-ui
+    ports:
+      - "8080:8080"
+    depends_on:
+      - doctor-service
+      - appointment-service
+      - patient-service
+      - payment-wrapper
+      - teleconferencing-wrapper
+      - error-service
+      - invoice-service
+      - inventory-service
+      - queue-service
+      - delivery-service
+      - join-queue-service
+      - setup-consultation-service
+      - make-prescription
+      - make-payment
+
   # ── Prometheus (Time-Series Database) ────────────────────────────────────
   prometheus:
     image: prom/prometheus:latest

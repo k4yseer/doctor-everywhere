@@ -1,6 +1,6 @@
-import apiClient from "../../core/apiClient";
+import apiClient from "@/core/apiClient";
 
-export type AppointmentStatus = "CONFIRMED" | "PENDING_PAYMENT" | "PAID";
+export type AppointmentStatus = "CONFIRMED" | "PENDING_PAYMENT" | "PAID" | "NO_SHOW";
 
 export interface Appointment {
   id: number;

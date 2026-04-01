@@ -57,7 +57,7 @@ def make_prescription():
         schema:
           properties:
             appointment_id:
-              type: string
+              type: integer
             patient_id:
               type: string
             medicines:
@@ -97,6 +97,20 @@ def make_prescription():
 
     if not all([appointment_id, patient_id]):
         return jsonify({"code": 400, "message": "Missing required fields"}), 400
+
+    try:
+        appointment_id = int(appointment_id)
+        if appointment_id <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({"code": 400, "message": "appointment_id must be a positive integer"}), 400
+
+    try:
+        dispense_quantity = int(dispense_quantity)
+        if dispense_quantity <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({"code": 400, "message": "dispense_quantity must be a positive integer"}), 400
 
     # ── Step 3: Check patient allergies ────────────────────────────────────────
     try:
@@ -237,7 +251,7 @@ def make_prescription():
         _publish_error("appointment_service", "APPOINTMENT-500", str(e), data)
         print(f"[MAKE PRESCRIPTION] Failed to update appointment status: {e}")
 
-    # ── Step 10: Publish PRESCRIPTION_MADE for notification ─────────────
+    # ── Step 10: Publish PRESCRIPTION_MADE for Resend notification ─────────────
     publish_message(
         routing_key="prescription.made",
         message={

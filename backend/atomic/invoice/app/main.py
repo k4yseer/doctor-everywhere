@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, g
+from flasgger import Swagger
 from sqlalchemy import create_engine, Column, String, Numeric, DateTime
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from datetime import datetime
@@ -6,6 +7,13 @@ from os import environ
 import uuid
 
 app = Flask(__name__)
+Swagger(app, template={
+    "info": {
+        "title": "Invoice Service API",
+        "version": "1.0.0",
+        "description": "Manages invoices linked to patient appointments.",
+    }
+})
 
 DB_URL = environ.get('dbURL', 'mysql+pymysql://root:root@localhost:3306/invoice_db')
 engine = create_engine(DB_URL)
@@ -57,6 +65,59 @@ def close_db(exception=None):
 
 @app.route('/invoices/<string:appt_id>', methods=['GET'])
 def get_invoice(appt_id):
+    """
+    Get invoice by appointment ID.
+    ---
+    tags:
+      - Invoices
+    parameters:
+      - in: path
+        name: appt_id
+        type: string
+        required: true
+        example: "1"
+    responses:
+      200:
+        description: Invoice details
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            data:
+              $ref: '#/definitions/Invoice'
+      404:
+        description: Invoice not found
+    definitions:
+      Invoice:
+        type: object
+        properties:
+          invoice_id:
+            type: string
+            example: "550e8400-e29b-41d4-a716-446655440000"
+          appointment_id:
+            type: string
+            example: "1"
+          patient_id:
+            type: string
+            example: "10000001"
+          amount:
+            type: number
+            example: 50.00
+          currency:
+            type: string
+            example: "sgd"
+          payment_status:
+            type: string
+            example: "PAID"
+          stripe_charge_id:
+            type: string
+            example: "ch_3NxWBz..."
+          created_at:
+            type: string
+            format: date-time
+    """
     db = get_db()
     invoice = db.query(Invoice).filter_by(appointment_id=appt_id).first()
 
@@ -68,6 +129,65 @@ def get_invoice(appt_id):
 
 @app.route('/invoices/<string:appt_id>', methods=['POST'])
 def create_invoice(appt_id):
+    """
+    Create an invoice for an appointment.
+    ---
+    tags:
+      - Invoices
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: appt_id
+        type: string
+        required: true
+        example: "1"
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - patient_id
+            - amount
+            - currency
+            - payment_status
+          properties:
+            patient_id:
+              type: string
+              example: "10000001"
+            amount:
+              type: number
+              example: 50.00
+            currency:
+              type: string
+              example: "sgd"
+            payment_status:
+              type: string
+              example: "PAID"
+            stripe_charge_id:
+              type: string
+              example: "ch_3NxWBz..."
+            invoice_id:
+              type: string
+              description: Optional — auto-generated if omitted
+              example: "550e8400-e29b-41d4-a716-446655440000"
+    responses:
+      201:
+        description: Invoice created
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 201
+            data:
+              $ref: '#/definitions/Invoice'
+      400:
+        description: Missing required fields
+      409:
+        description: Invoice already exists for this appointment
+    """
     data = request.get_json()
     if not data:
         return jsonify({'code': 400, 'message': 'Request body is required'}), 400
@@ -101,4 +221,4 @@ def create_invoice(appt_id):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5005, debug=True)
+    app.run(host='0.0.0.0', port=5008, debug=True)

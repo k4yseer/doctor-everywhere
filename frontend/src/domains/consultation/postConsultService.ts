@@ -56,6 +56,24 @@ export interface ConsultationData {
   delivery: Delivery | null;
 }
 
+export interface MakePaymentPayload {
+  appointment_id: number;
+  patient_id: number;
+  amount: number;
+  currency: string;
+  paymentMethodId: string;
+  patient_address: string;
+  medicine_code: string;
+  reserve_amount: number;
+  phone_number: string;
+}
+
+export interface MakePaymentResponse {
+  code: number;
+  message: string;
+  data?: any;
+}
+
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
 
 function mockDelay(ms = 900) {
@@ -128,7 +146,7 @@ function buildMockData(): ConsultationData {
 
 export const PostConsultService = {
   /**
-   * GET /api/consults/{patient_id}
+   * GET /consultation-history/{patient_id}
    * Fetches merged consultation data: appointment + prescription + invoice + delivery
    */
   async getConsultation(patient_id: number): Promise<ConsultationData> {
@@ -137,50 +155,84 @@ export const PostConsultService = {
       return buildMockData();
     }
 
-    const { data } = await apiClient.get(`/api/consults/${patient_id}`);
-    return data.data;
+    const { data } = await apiClient.get(`/consultation-history/${patient_id}`);
+    
+    // Take the most recent consultation (last in array)
+    const raw = data[data.length - 1];
+
+    return {
+      appointment: {
+        id: raw.appointment_id,
+        consult_id: String(raw.appointment_id),
+        patient_id: patient_id,
+        doctor: {
+          id: 0,
+          name: "Unknown",
+          specialty: "Unknown",
+        },
+        datetime: raw.date,
+        notes: "",
+        status: raw.status,
+      },
+      prescription: {
+        id: 0,
+        items: raw.prescriptions ?? [],
+      },
+      invoice: {
+        id: raw.appointment_id,
+        consultation_fee: raw.billing?.amount ?? 0,
+        medicine_fee: 0,
+        total: raw.billing?.amount ?? 0,
+        status: raw.billing?.payment_status === "Paid" ? "PAID" : "PENDING_PAYMENT",
+        currency: "SGD",
+      },
+      delivery: raw.billing?.delivery_status
+        ? {
+            id: 0,
+            tracking_number: "",
+            address: "",
+            status: raw.billing.delivery_status === "Delivered"
+              ? "DELIVERED"
+              : raw.billing.delivery_status === "Dispatched"
+              ? "DISPATCHED"
+              : "PENDING",
+            estimated_date: "",
+          }
+        : null,
+    };
   },
 
-  /**
-   * POST /api/consults/{consult_id}/delivery
-   * Creates a medicine delivery order
-   */
-  async scheduleDelivery(consult_id: string, address: string): Promise<Delivery> {
+  async scheduleDelivery(appointment_id: number, patient_address: string): Promise<Delivery> {
     if (USE_MOCK) {
-      await mockDelay(1000);
-      const eta = new Date();
-      eta.setDate(eta.getDate() + 2);
+      await mockDelay(900);
       return {
-        id: 99,
-        tracking_number: "DE-TRK-" + Math.floor(100000 + Math.random() * 900000),
-        address,
+        id: 123,
+        tracking_number: "TRK123456",
+        address: patient_address,
         status: "PENDING",
-        estimated_date: eta.toLocaleDateString("en-SG", {
-          weekday: "short",
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        }),
+        estimated_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
       };
     }
 
-    const { data } = await apiClient.post(`/api/consults/${consult_id}/delivery`, {
-      address,
+    const { data } = await apiClient.post(`/deliveries/order`, {
+      appointment_id,
+      patient_address,
     });
+
     return data.data;
   },
 
   /**
-   * POST /api/consults/{id}/pay
+   * POST /make-payment
    * Processes payment via Stripe through the Make Payment microservice
    */
-  async makePayment(consult_id: number): Promise<{ status: string }> {
+  async makePayment(payload: MakePaymentPayload): Promise<MakePaymentResponse> {
     if (USE_MOCK) {
       await mockDelay(1400);
-      return { status: "PAID" };
+      return { code: 200, message: "Payment processed successfully", data: { status: "PAID" } };
     }
 
-    const { data } = await apiClient.post(`/api/consults/${consult_id}/pay`);
+    const { data } = await apiClient.post(`/make-payment`, payload);
     return data;
   },
 };

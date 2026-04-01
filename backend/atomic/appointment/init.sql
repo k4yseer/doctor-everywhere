@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     start_url     VARCHAR(512)                              NOT NULL,
     join_url      VARCHAR(512)                              NOT NULL,
     status        ENUM('CONFIRMED','PENDING_PAYMENT','PAID','NO_SHOW') NOT NULL DEFAULT 'CONFIRMED',
+    clinical_notes VARCHAR(5000)                            NULL,
     PRIMARY KEY (id)
 );
 

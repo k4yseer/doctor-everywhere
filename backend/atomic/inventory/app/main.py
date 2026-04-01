@@ -127,7 +127,8 @@ def handle_unexpected_error(err):
     )
 
 
-# ── Reserve Medicine ────────────────────────────────────────────────────────
+# ── Get Medicines ────────────────────────────────────────────────────────
+@app.route("/inventory/medicines", methods=["GET"])
 @app.route("/inventory/medicines/", methods=["GET"])
 @swag_from(path.join(SWAGGER_DIR, "get_medicines.yml"))
 def get_medicines():

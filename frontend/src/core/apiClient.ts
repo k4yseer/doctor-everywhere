@@ -3,7 +3,7 @@ import { handleApiError } from './errorHandling'
 
 // connect to api gateway
 const apiClient = axios.create({
-    baseURL: import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8080/api',
+    baseURL: import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000/api',
     headers: {
         'Content-Type': 'application/json',
     },

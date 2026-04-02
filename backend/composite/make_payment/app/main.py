@@ -6,6 +6,7 @@ import pika
 import json
 import os
 import uuid
+from decimal import Decimal, InvalidOperation
 
 from app.error_publisher import publish_error as _publish_error
 from app import upstream, notification_publisher
@@ -23,6 +24,7 @@ SERVICE_NAME = "make-payment"
 # ─── AMQP Helpers ──────────────────────────────────────────────────────────────
 def publish_message(routing_key: str, message: dict):
     """Generic AMQP publisher — fire and forget."""
+    connection = None
     try:
         connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
         channel    = connection.channel()
@@ -33,10 +35,12 @@ def publish_message(routing_key: str, message: dict):
             body=json.dumps(message),
             properties=pika.BasicProperties(delivery_mode=2)
         )
-        connection.close()
-        print(f"[MAKE PAYMENT] Published to '{routing_key}'")
+        app.logger.info(f"Published to '{routing_key}'")
     except Exception as e:
-        print(f"[MAKE PAYMENT] AMQP publish failed: {e}")
+        app.logger.error(f"[AMQP] publish failed: {str(e)}", exc_info=True)
+    finally:
+        if connection and connection.is_open:
+            connection.close()
 
 
 # ─── HTTP Helpers ─────────────────────────────────────────────────────────────
@@ -66,8 +70,9 @@ def make_payment():
             patient_id:
               type: integer
             amount:
-              type: integer
-              description: Amount in the smallest currency unit (e.g. cents — 5000 = SGD 50.00)
+              type: number
+              format: float
+              description: Amount in dollars (e.g. 50.00)
             currency:
               type: string
               example: "sgd"
@@ -76,10 +81,6 @@ def make_payment():
               description: Stripe PaymentMethod ID
             patient_address:
               type: string
-            medicine_code:
-              type: string
-            reserve_amount:
-              type: integer
             phone_number:
               type: string
     responses:
@@ -98,18 +99,16 @@ def make_payment():
 
     appointment_id = data.get("appointment_id")
     patient_id = data.get("patient_id")
-    amount = data.get("amount")*100
+    amount = data.get("amount")
     currency = data.get("currency")
     payment_method_id = data.get("paymentMethodId")
     patient_address = data.get("patient_address")
-    medicine_code = data.get("medicine_code")
-    reserve_amount = data.get("reserve_amount")
     phone_number = data.get("phone_number")
 
     # Legacy reservation and downstream orchestration removed from this service.
     # Inventory reservation and invoice creation happens in make-prescription.
 
-    if not appointment_id or not patient_id:
+    if appointment_id is None or patient_id is None:
         _log_step(correlation_id, "Missing required appointment_id or patient_id")
         return error_response(400, "appointment_id and patient_id are required", "MAKE-PAYMENT-400-MISSING_FIELDS", {"correlation_id": correlation_id})
 
@@ -117,19 +116,36 @@ def make_payment():
     if not invoice_data:
         _log_step(correlation_id, f"Invoice not found for appointment_id={appointment_id}")
         return error_response(404, f"Invoice not found for appointment_id {appointment_id}", "MAKE-PAYMENT-404-INVOICE_MISSING", {"correlation_id": correlation_id})
+    if str(invoice_data.get("payment_status", "")).upper() == "PAID":
+        _log_step(correlation_id, "Payment already completed, skipping charge")
+        return jsonify({
+            "code": 200,
+            "message": "Payment already processed",
+            "data": {
+                "transaction_id": invoice_data.get("stripe_charge_id"),
+                "invoice": invoice_data,
+            },
+            "correlation_id": correlation_id,
+        }), 200
 
     _log_step(correlation_id, f"Fetched invoice for appointment_id={appointment_id}")
 
     if amount is None:
-        invoice_amount = invoice_data.get("amount")*100
+        invoice_amount = invoice_data.get("amount")
         if invoice_amount is None:
             _log_step(correlation_id, "Amount not provided and invoice amount missing")
             return error_response(400, "Amount is required either in request or invoice", "MAKE-PAYMENT-400-MISSING_AMOUNT", {"correlation_id": correlation_id})
-        try:
-            amount = int(round(float(invoice_amount) * 100))
-        except (TypeError, ValueError):
-            _log_step(correlation_id, "Invalid invoice amount")
-            return error_response(400, "Invalid invoice amount", "MAKE-PAYMENT-400-INVOICE_AMOUNT_INVALID", {"correlation_id": correlation_id})
+    else:
+        invoice_amount = amount
+    try:
+        amount = int((Decimal(str(invoice_amount)) * 100).to_integral_value())
+        if amount <= 0:
+            _log_step(correlation_id, "Invalid amount <= 0")
+            return error_response(400, "Amount must be greater than 0", "MAKE-PAYMENT-400-INVALID_AMOUNT", {"correlation_id": correlation_id})
+    except (InvalidOperation, TypeError, ValueError):
+        _log_step(correlation_id, "Invalid invoice amount")
+        return error_response(400, "Invalid invoice amount", "MAKE-PAYMENT-400-INVOICE_AMOUNT_INVALID", {"correlation_id": correlation_id})
+
 
     if not payment_method_id:
         _log_step(correlation_id, "Missing paymentMethodId")
@@ -137,12 +153,15 @@ def make_payment():
 
     if not currency:
         currency = invoice_data.get("currency")
+    if currency:
+        currency = currency.lower()
     if not currency:
         _log_step(correlation_id, "Currency is required")
         return error_response(400, "Currency is required", "MAKE-PAYMENT-400-MISSING_CURRENCY", {"correlation_id": correlation_id})
 
     _log_step(correlation_id, f"Processing payment for appointment_id={appointment_id}, amount={amount}, currency={currency}")
-    transaction_id = upstream.process_payment(amount, currency, payment_method_id)
+    idempotency_key = f"payment:{appointment_id}:{payment_method_id}"
+    transaction_id = upstream.process_payment(amount, currency, payment_method_id, idempotency_key)
     _log_step(correlation_id, f"Payment processed transaction_id={transaction_id}")
 
     updated_invoice = upstream.update_invoice_status(appointment_id, transaction_id)
@@ -189,30 +208,6 @@ def make_payment():
             "invoice": updated_invoice,
         },
         "correlation_id": correlation_id,
-    }), 200
-
-    try:
-        patient_email = upstream.get_patient_email(patient_id)
-        notification_publisher.publish_notification(
-            "payment-details",
-            {
-                "email": patient_email,
-                "appointment_id": appointment_id,
-                "is_successful": True,
-            },
-        )
-    except Exception as err:
-        print(f"[MAKE PAYMENT] WARNING: could not publish payment notification — {err}")
-
-    return jsonify({
-        "code": 200,
-        "message": "Payment processed successfully",
-        "data": {
-            "transaction_id": transaction_id,
-            "invoice": invoice_data,
-            "delivery": delivery_data,
-            "reservation": reservation_data,
-        },
     }), 200
 
 

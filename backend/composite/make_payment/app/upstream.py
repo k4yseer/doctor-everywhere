@@ -24,19 +24,26 @@ def _get_error_message(res, fallback="Upstream service error"):
         return fallback
 
 
-def process_payment(amount, currency, payment_method_id):
-    try:
-        res = requests.post(
-            f"{STRIPE_WRAPPER_URL}/api/wrapper/stripe/charge",
-            json={
-                "amount": amount,
-                "currency": currency,
-                "paymentMethodId": payment_method_id,
-            },
-            timeout=10,
-        )
-    except requests.exceptions.RequestException:
-        _raise_for_connection("Stripe wrapper", "MAKE-PAYMENT-503-STRIPE_UNREACHABLE")
+def process_payment(amount, currency, payment_method_id, idempotency_key):
+    res = None
+    for attempt in range(2):
+        try:
+            res = requests.post(
+                f"{STRIPE_WRAPPER_URL}/api/wrapper/stripe/charge",
+                json={
+                    "amount": amount,
+                    "currency": currency,
+                    "paymentMethodId": payment_method_id,
+                },
+                headers={
+                    "Idempotency-Key": idempotency_key
+                },
+                timeout=10,
+            )
+            break
+        except requests.exceptions.RequestException:
+            if attempt == 1:
+                _raise_for_connection("Stripe wrapper", "MAKE-PAYMENT-503-STRIPE_UNREACHABLE")
 
     if res.status_code not in (200, 201):
         try:
@@ -46,7 +53,10 @@ def process_payment(amount, currency, payment_method_id):
             message = "Stripe payment failed"
         raise UpstreamError(res.status_code, message, f"MAKE-PAYMENT-{res.status_code}-STRIPE")
 
-    data = res.json()
+    try:
+        data = res.json()
+    except Exception:
+        raise UpstreamError(500, "Invalid JSON from Stripe", "MAKE-PAYMENT-500-INVALID_STRIPE_RESPONSE")
     transaction_id = data.get("transactionId")
     if not transaction_id:
         raise UpstreamError(500, "Missing transaction ID from Stripe", "MAKE-PAYMENT-500-STRIPE")
@@ -69,7 +79,10 @@ def get_invoice(appointment_id):
         message = _get_error_message(res, "Invoice lookup failed")
         raise UpstreamError(res.status_code, message, f"MAKE-PAYMENT-{res.status_code}-INVOICE")
 
-    return res.json().get("data", {})
+    body = res.json()
+    if "data" not in body:
+        raise UpstreamError(500, "Invalid invoice response", "MAKE-PAYMENT-500-INVOICE_FORMAT")
+    return body["data"]
 
 
 def update_invoice_status(appointment_id, transaction_id, payment_status="PAID"):
@@ -89,7 +102,10 @@ def update_invoice_status(appointment_id, transaction_id, payment_status="PAID")
         message = _get_error_message(res, "Invoice update failed")
         raise UpstreamError(res.status_code, message, f"MAKE-PAYMENT-{res.status_code}-INVOICE")
 
-    return res.json().get("data", {})
+    body = res.json()
+    if "data" not in body:
+        raise UpstreamError(500, "Invalid invoice response", "MAKE-PAYMENT-500-INVOICE_FORMAT")
+    return body["data"]
 
 # Legacy invoice creation, appointment update, delivery ordering, and inventory reservation removed.
 # This service now only charges payment, updates invoice status, and emits payment.success.

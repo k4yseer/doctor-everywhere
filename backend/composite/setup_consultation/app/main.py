@@ -52,6 +52,74 @@ def handle_unexpected_error(err):
     )
 
 
+@app.route("/api/setup-consultation/no-show", methods=["POST"])
+def no_show():
+    """
+    Mark an appointment as no-show and notify the patient.
+    ---
+    tags:
+      - Consultation Setup
+    summary: Mark appointment as no-show
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - appointment_id
+          properties:
+            appointment_id:
+              type: integer
+              example: 42
+    responses:
+      200:
+        description: Appointment marked as no-show and patient notified
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            message:
+              type: string
+              example: "Appointment 42 marked as no-show"
+      400:
+        description: Missing required field
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 400
+            message:
+              type: string
+              example: "appointment_id is required"
+      503:
+        description: Upstream service unavailable
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 503
+            message:
+              type: string
+              example: "Appointment service unreachable"
+    """
+    data = request.get_json()
+    appointment_id = data.get("appointment_id") if data else None
+
+    if not appointment_id:
+        return error_response(400, "appointment_id is required", "CONSULT-400-MISSING_FIELDS")
+
+    upstream.handle_no_show(appointment_id)
+
+    return jsonify({"code": 200, "message": f"Appointment {appointment_id} marked as no-show"}), 200
+
+
 @app.route("/api/setup-consultation/next-patient", methods=["POST"])
 def next_patient():
     """
@@ -74,10 +142,6 @@ def next_patient():
             doctor_id:
               type: integer
               example: 1
-            no_show_appointment_id:
-              type: integer
-              example: 42
-              description: Optional — ID of the appointment to mark as no-show before dequeuing the next patient
     responses:
       200:
         description: Consultation setup successful
@@ -134,10 +198,6 @@ def next_patient():
 
     if not doctor_id:
         return error_response(400, "doctor_id is required", "CONSULT-400-MISSING_FIELDS")
-
-    no_show_id = data.get("no_show_appointment_id") if data else None
-    if no_show_id is not None:
-        upstream.handle_no_show(no_show_id)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         f_dequeue = executor.submit(upstream.dequeue_patient)

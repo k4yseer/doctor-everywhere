@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import LandingPage from '../views/LandingPage.vue'
 import QueueStatus from '../views/QueueStatus.vue'
+import AppointmentSelection from '../views/AppointmentSelection.vue'
 import PostConsultation from '../views/PostConsultation.vue'
 import DoctorDashboard from "../views/DoctorDashboard.vue"
 
@@ -16,6 +17,11 @@ const router = createRouter({
       path: '/queue',
       name: 'queue',
       component: QueueStatus,
+    },
+    {
+      path: '/appointments',
+      name: 'appointments',
+      component: AppointmentSelection,
     },
     {
       path: '/post-consult',

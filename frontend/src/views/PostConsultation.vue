@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { loadStripe, type Stripe, type StripeCardElement, type StripeElements, type StripeCardElementChangeEvent } from '@stripe/stripe-js'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import {
   PostConsultService,
   type ConsultationData,
@@ -10,6 +10,14 @@ import {
 } from '../domains/consultation/postConsultService'
 
 const router = useRouter()
+const route = useRoute()
+
+function parseRouteId(value: string | number | null | undefined | Array<string | number | null>): number | undefined {
+  if (value == null) return undefined
+  const raw = Array.isArray(value) ? value[0] : value
+  const numeric = Number(raw)
+  return isNaN(numeric) ? undefined : numeric
+}
 
 const loading = ref(true)
 const consultation = ref<ConsultationData | null>(null)
@@ -100,8 +108,9 @@ async function createPaymentMethod(): Promise<string | null> {
 }
 
 onMounted(async () => {
-  // TODO: replace with real patient_id from auth store
-  consultation.value = await PostConsultService.getConsultation(1)
+  const patientId = parseRouteId(route.query.patientId) ?? 1
+  const appointmentId = parseRouteId(route.query.appointmentId)
+  consultation.value = await PostConsultService.getConsultation(patientId, appointmentId)
   if (consultation.value.delivery) {
     delivery.value = consultation.value.delivery
     deliveryState.value = 'scheduled'

@@ -4,6 +4,10 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from werkzeug.exceptions import HTTPException
 from flasgger import Swagger, swag_from
 from os import environ, path
+import threading
+import time
+import pika
+import json
 
 from app.error_publisher import publish_error as _publish_error
 
@@ -39,6 +43,11 @@ SWAGGER_DIR = path.join(path.dirname(__file__), "swagger")
 DB_URL = environ.get('dbURL', 'mysql+pymysql://root:root@localhost:3306/inventory_db')
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+AMQP_URL = environ.get('AMQP_URL', 'amqp://guest:guest@rabbitmq:5672/')
+EXCHANGE_NAME = 'topic_logs'
+PAYMENT_SUCCESS_ROUTING_KEY = 'payment.success'
+QUEUE_NAME = 'inventory.payment.success'
 
 
 class Base(DeclarativeBase):
@@ -87,6 +96,31 @@ def get_db():
     if 'db' not in g:
         g.db = SessionLocal()
     return g.db
+
+
+def _fulfill_reservations_by_appointment(db, appointment_id):
+    reservations = db.query(Reservation).filter_by(appointment_id=appointment_id).all()
+    if not reservations:
+        return {
+            "fulfilled_reservations": [],
+            "fulfilled_count": 0,
+            "medicine_codes": [],
+        }
+
+    fulfilled_reservations = []
+    medicine_codes = set()
+    for reservation in reservations:
+        db.query(Medicine).with_for_update().filter_by(medicine_code=reservation.medicine_code).first()
+        medicine_codes.add(reservation.medicine_code)
+        fulfilled_reservations.append(reservation.json())
+        db.delete(reservation)
+
+    db.commit()
+    return {
+        "fulfilled_reservations": fulfilled_reservations,
+        "fulfilled_count": len(fulfilled_reservations),
+        "medicine_codes": sorted(medicine_codes),
+    }
 
 
 @app.route("/inventory/<string:medicine_code>", methods=["GET"])
@@ -286,6 +320,62 @@ def fulfill_reservation(appointment_id):
             },
             publish=True,
         )
+
+
+def process_payment_success(ch, method, properties, body):
+    try:
+        payload = json.loads(body)
+        if payload.get("event_type") != "payment.success":
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
+        appointment_id = payload.get("appointment_id")
+        if appointment_id is None:
+            app.logger.warning("payment.success missing appointment_id")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
+        session = SessionLocal()
+        try:
+            result = _fulfill_reservations_by_appointment(session, appointment_id)
+            if result["fulfilled_count"] == 0:
+                app.logger.info(f"No reservations to fulfill for appointment_id={appointment_id}")
+            else:
+                app.logger.info(
+                    f"Fulfilled {result['fulfilled_count']} reservation(s) for appointment_id={appointment_id}"
+                )
+        except Exception:
+            app.logger.exception("Failed to fulfill inventory reservations from payment.success event")
+        finally:
+            session.close()
+
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+    except Exception:
+        app.logger.exception("Error processing payment.success message")
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
+
+def start_amqp_consumer():
+    delay = 5
+    while True:
+        try:
+            connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
+            channel = connection.channel()
+            channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
+            result = channel.queue_declare(queue=QUEUE_NAME, durable=True)
+            queue_name = result.method.queue
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=PAYMENT_SUCCESS_ROUTING_KEY)
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue=queue_name, on_message_callback=process_payment_success)
+            channel.start_consuming()
+        except Exception:
+            app.logger.exception("Inventory service AMQP consumer error")
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+
+
+t = threading.Thread(target=start_amqp_consumer, daemon=True)
+t.start()
 
 
 if __name__ == "__main__":

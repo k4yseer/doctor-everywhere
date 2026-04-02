@@ -7,11 +7,15 @@ import os
 import threading
 import base64
 import time
+from urllib import request as urllib_request, error as urllib_error
 
 AMQP_URL = os.environ.get("AMQP_URL", "amqp://guest:guest@localhost:5672/")
 EXCHANGE_NAME = "notifications"
 QUEUE_NAME = "notification_queue"
 ROUTING_KEY = "notification.#"
+PATIENT_SERVICE_URL = os.environ.get("PATIENT_SERVICE_URL", "http://patient:5003")
+PAYMENT_SUCCESS_ROUTING_KEY = "payment.success"
+PAYMENT_SUCCESS_QUEUE = "notification_payment_success_queue"
 
 app = Flask(__name__)
 

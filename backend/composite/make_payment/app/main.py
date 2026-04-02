@@ -5,6 +5,7 @@ from werkzeug.exceptions import HTTPException
 import pika
 import json
 import os
+import uuid
 
 from app.error_publisher import publish_error as _publish_error
 from app import upstream, notification_publisher
@@ -45,10 +46,14 @@ def error_response(status_code, message, error_code, payload=None):
     return jsonify({"code": status_code, "message": message}), status_code
 
 
+def _log_step(correlation_id: str, message: str):
+    app.logger.info(f"[{correlation_id}] {message}")
+
+
 @app.route("/make-payment", methods=["POST"])
 def make_payment():
     """
-    Composite: orchestrate payment processing, invoice creation, status updates, delivery, inventory reservation, and notifications.
+    Composite: fetch invoice, process payment, update invoice status, and emit payment.success.
     ---
     parameters:
       - name: body
@@ -86,12 +91,14 @@ def make_payment():
         description: Internal service error
     """
     data = request.get_json()
+    correlation_id = str(uuid.uuid4())
+    _log_step(correlation_id, "Received make-payment request")
     if not data:
         return error_response(400, "Request body is required", "MAKE-PAYMENT-400-MISSING_BODY")
 
     appointment_id = data.get("appointment_id")
     patient_id = data.get("patient_id")
-    amount = data.get("amount")
+    amount = data.get("amount")*100
     currency = data.get("currency")
     payment_method_id = data.get("paymentMethodId")
     patient_address = data.get("patient_address")
@@ -99,41 +106,90 @@ def make_payment():
     reserve_amount = data.get("reserve_amount")
     phone_number = data.get("phone_number")
 
-    if not all([appointment_id, patient_id, amount, currency, payment_method_id, patient_address, medicine_code, reserve_amount, phone_number]):
-        return error_response(400, "Missing required fields", "MAKE-PAYMENT-400-MISSING_FIELDS")
+    # Legacy reservation and downstream orchestration removed from this service.
+    # Inventory reservation and invoice creation happens in make-prescription.
 
-    transaction_id = upstream.process_payment(amount, currency, payment_method_id)
+    if not appointment_id or not patient_id:
+        _log_step(correlation_id, "Missing required appointment_id or patient_id")
+        return error_response(400, "appointment_id and patient_id are required", "MAKE-PAYMENT-400-MISSING_FIELDS", {"correlation_id": correlation_id})
+
     invoice_data = upstream.get_invoice(appointment_id)
-    if invoice_data:
-        invoice_data = upstream.update_invoice_status(appointment_id, transaction_id)
-    else:
-        invoice_data = upstream.create_invoice(appointment_id, patient_id, amount, currency, transaction_id)
-    upstream.update_appointment_status(appointment_id)
-    delivery_data = upstream.create_delivery_order(appointment_id, patient_address)
-    reservation_data = upstream.reserve_inventory(medicine_code, appointment_id, reserve_amount)
+    if not invoice_data:
+        _log_step(correlation_id, f"Invoice not found for appointment_id={appointment_id}")
+        return error_response(404, f"Invoice not found for appointment_id {appointment_id}", "MAKE-PAYMENT-404-INVOICE_MISSING", {"correlation_id": correlation_id})
 
-    publish_message(
-        routing_key="appointment.complete",
-        message={"appointment_id": appointment_id}
-    )
+    _log_step(correlation_id, f"Fetched invoice for appointment_id={appointment_id}")
 
-    publish_message(
-        routing_key="delivery.create",
-        message={"appointment_id": appointment_id, "delivery_id": delivery_data.get("delivery_id")}
-    )
+    if amount is None:
+        invoice_amount = invoice_data.get("amount")*100
+        if invoice_amount is None:
+            _log_step(correlation_id, "Amount not provided and invoice amount missing")
+            return error_response(400, "Amount is required either in request or invoice", "MAKE-PAYMENT-400-MISSING_AMOUNT", {"correlation_id": correlation_id})
+        try:
+            amount = int(round(float(invoice_amount) * 100))
+        except (TypeError, ValueError):
+            _log_step(correlation_id, "Invalid invoice amount")
+            return error_response(400, "Invalid invoice amount", "MAKE-PAYMENT-400-INVOICE_AMOUNT_INVALID", {"correlation_id": correlation_id})
 
-    publish_message(
-        routing_key="inventory.reserved",
-        message={"appointment_id": appointment_id, "reservation_id": reservation_data.get("reservation_id")}
-    )
+    if not payment_method_id:
+        _log_step(correlation_id, "Missing paymentMethodId")
+        return error_response(400, "paymentMethodId is required", "MAKE-PAYMENT-400-MISSING_PAYMENT_METHOD", {"correlation_id": correlation_id})
 
-    publish_message(
-        routing_key="twilio.sms",
-        message={
-            "phone_number": phone_number,
-            "text": f"Payment successful for appointment {appointment_id}. Your order is being prepared."
-        }
-    )
+    if not currency:
+        currency = invoice_data.get("currency")
+    if not currency:
+        _log_step(correlation_id, "Currency is required")
+        return error_response(400, "Currency is required", "MAKE-PAYMENT-400-MISSING_CURRENCY", {"correlation_id": correlation_id})
+
+    _log_step(correlation_id, f"Processing payment for appointment_id={appointment_id}, amount={amount}, currency={currency}")
+    transaction_id = upstream.process_payment(amount, currency, payment_method_id)
+    _log_step(correlation_id, f"Payment processed transaction_id={transaction_id}")
+
+    updated_invoice = upstream.update_invoice_status(appointment_id, transaction_id)
+    _log_step(correlation_id, f"Invoice updated to PAID for appointment_id={appointment_id}")
+
+    event_payload = {
+        "event_type": "payment.success",
+        "version": "v2",
+        "correlation_id": correlation_id,
+        "appointment_id": appointment_id,
+        "patient_id": patient_id,
+        "transaction_id": transaction_id,
+        "amount": amount,
+        "currency": currency,
+        "phone_number": phone_number,
+        "patient_address": patient_address,
+    }
+
+    try:
+        publish_message("payment.success", event_payload)
+        _log_step(correlation_id, "Published payment.success event")
+    except Exception as err:
+        _log_step(correlation_id, f"Failed to publish payment.success event: {err}")
+
+    try:
+        patient_email = upstream.get_patient_email(patient_id)
+        notification_publisher.publish_notification(
+            "payment-details",
+            {
+                "email": patient_email,
+                "appointment_id": appointment_id,
+                "is_successful": True,
+            },
+        )
+        _log_step(correlation_id, "Published email notification")
+    except Exception as err:
+        _log_step(correlation_id, f"Non-blocking notification failure: {err}")
+
+    return jsonify({
+        "code": 200,
+        "message": "Payment processed successfully",
+        "data": {
+            "transaction_id": transaction_id,
+            "invoice": updated_invoice,
+        },
+        "correlation_id": correlation_id,
+    }), 200
 
     try:
         patient_email = upstream.get_patient_email(patient_id)

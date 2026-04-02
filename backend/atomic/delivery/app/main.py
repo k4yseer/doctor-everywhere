@@ -5,6 +5,10 @@ from sqlalchemy import create_engine, Column, String, Text, DateTime, select
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import uuid
 import os
+import json
+import threading
+import time
+import pika
 from datetime import datetime
 
 app = Flask(__name__)
@@ -18,6 +22,11 @@ DATABASE_URL = os.environ.get(
 
 engine  = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
+
+AMQP_URL = os.environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
+EXCHANGE_NAME = "topic_logs"
+PAYMENT_SUCCESS_ROUTING_KEY = "payment.success"
+QUEUE_NAME = "delivery.payment.success"
 
 
 class Base(DeclarativeBase):
@@ -196,6 +205,72 @@ def update_delivery_status(delivery_id):
         session.close()
 
 
+
+
+def process_payment_success(ch, method, properties, body):
+    try:
+        payload = json.loads(body)
+        if payload.get("event_type") != "payment.success":
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
+        appointment_id = payload.get("appointment_id")
+        patient_address = payload.get("patient_address")
+        if not appointment_id or not patient_address:
+            app.logger.warning("payment.success missing appointment_id or patient_address")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
+        session = Session()
+        try:
+            existing = session.execute(
+                select(Delivery).where(Delivery.appointment_id == str(appointment_id))
+            ).scalar_one_or_none()
+            if existing:
+                app.logger.info(f"Delivery already exists for appointment_id={appointment_id}")
+            else:
+                delivery = Delivery(
+                    delivery_id=str(uuid.uuid4()),
+                    appointment_id=str(appointment_id),
+                    patient_address=patient_address,
+                    delivery_status="PENDING",
+                )
+                session.add(delivery)
+                session.commit()
+                app.logger.info(f"Created delivery for appointment_id={appointment_id}")
+        except Exception:
+            session.rollback()
+            app.logger.exception("Failed to create delivery from payment.success event")
+        finally:
+            session.close()
+
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+    except Exception:
+        app.logger.exception("Error processing payment.success message")
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
+
+def start_amqp_consumer():
+    delay = 5
+    while True:
+        try:
+            connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
+            channel = connection.channel()
+            channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
+            result = channel.queue_declare(queue=QUEUE_NAME, durable=True)
+            queue_name = result.method.queue
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=PAYMENT_SUCCESS_ROUTING_KEY)
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue=queue_name, on_message_callback=process_payment_success)
+            channel.start_consuming()
+        except Exception:
+            app.logger.exception("Delivery service AMQP consumer error")
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+
+
+t = threading.Thread(target=start_amqp_consumer, daemon=True)
+t.start()
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5014, debug=False)

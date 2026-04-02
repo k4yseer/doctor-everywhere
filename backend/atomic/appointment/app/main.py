@@ -2,6 +2,8 @@ import json
 from datetime import datetime
 from os import environ
 from time import sleep
+import threading
+import time
 
 import pika
 from flask import Flask, g, jsonify, request
@@ -22,6 +24,9 @@ Swagger(app, template={
 DB_URL = environ.get("dbURL", "mysql+pymysql://root:root@localhost:3306/appointment_db")
 AMQP_URL = environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
 SERVICE_NAME = "appointment"
+EXCHANGE_NAME = "topic_logs"
+PAYMENT_SUCCESS_ROUTING_KEY = "payment.success"
+QUEUE_NAME = "appointment.payment.success"
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -87,14 +92,76 @@ def get_db():
     return g.db
 
 
+def process_payment_success(ch, method, properties, body):
+    try:
+        payload = json.loads(body)
+        if payload.get("event_type") != "payment.success":
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
+        appointment_id = payload.get("appointment_id")
+        if appointment_id is None:
+            app.logger.warning("payment.success missing appointment_id")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
+        session = SessionLocal()
+        try:
+            appointment = session.get(Appointment, appointment_id)
+            if not appointment:
+                app.logger.warning(f"No appointment found for appointment_id={appointment_id}")
+            elif appointment.status == "PAID":
+                app.logger.info(f"Appointment {appointment_id} already PAID")
+            else:
+                appointment.status = "PAID"
+                session.commit()
+                app.logger.info(f"Appointment {appointment_id} marked as PAID")
+        except Exception:
+            app.logger.exception("Failed to update appointment status from payment.success event")
+        finally:
+            session.close()
+
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+    except Exception:
+        app.logger.exception("Error processing payment.success message")
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
+
+def start_amqp_consumer():
+    delay = 5
+    while True:
+        try:
+            connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
+            channel = connection.channel()
+            channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
+            result = channel.queue_declare(queue=QUEUE_NAME, durable=True)
+            queue_name = result.method.queue
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=PAYMENT_SUCCESS_ROUTING_KEY)
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue=queue_name, on_message_callback=process_payment_success)
+            delay = 5
+            channel.start_consuming()
+        except Exception as err:
+            publish_error(
+                error_code="APPT-500-AMQP_CONSUMER",
+                error_message=f"AMQP consumer failed: {err}",
+                payload={"service": SERVICE_NAME},
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+
+
+from app.error_publisher import publish_error as publish_error
+
+t = threading.Thread(target=start_amqp_consumer, daemon=True)
+t.start()
+
+
 @app.teardown_appcontext
 def close_db(exception=None):
     db = g.pop("db", None)
     if db is not None:
         db.close()
-
-
-from app.error_publisher import publish_error as publish_error
 
 
 def error_response(status_code, message, error_code, payload=None):

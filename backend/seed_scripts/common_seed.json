@@ -1,0 +1,139 @@
+{
+  "patients": [
+    {
+      "patient_id": 1,
+      "patient_name": "John Doe",
+      "address": "123 Main St",
+      "contact_number": "93456789",
+      "email": "john.doe@example.com",
+      "allergies": ["Penicillin", "Aspirin"]
+    },
+    {
+      "patient_id": 2,
+      "patient_name": "Jane Smith",
+      "address": "456 Oak Ave",
+      "contact_number": "98765432",
+      "email": "jane.smith@example.com",
+      "allergies": ["Ibuprofen"]
+    }
+  ],
+  "doctors": [
+    {
+      "id": 1,
+      "name": "Dr. Alice Chen",
+      "specialty": "Cardiology",
+      "status": "AVAILABLE"
+    },
+    {
+      "id": 2,
+      "name": "Dr. Bob Tan",
+      "specialty": "Dermatology",
+      "status": "AVAILABLE"
+    }
+  ],
+  "appointments": [
+    {
+      "id": 1,
+      "patient_id": 1,
+      "doctor_id": 1,
+      "slot_datetime": "2026-04-10T09:00:00",
+      "start_url": "https://meet.example.com/apt-101-start",
+      "join_url": "https://meet.example.com/apt-101-join",
+      "status": "CONFIRMED"
+    },
+    {
+      "id": 2,
+      "patient_id": 2,
+      "doctor_id": 2,
+      "slot_datetime": "2026-04-11T14:30:00",
+      "start_url": "https://meet.example.com/apt-102-start",
+      "join_url": "https://meet.example.com/apt-102-join",
+      "status": "PENDING_PAYMENT"
+    },
+    {
+      "id": 3,
+      "patient_id": 1,
+      "doctor_id": 2,
+      "slot_datetime": "2026-04-12T16:00:00",
+      "start_url": "https://meet.example.com/apt-103-start",
+      "join_url": "https://meet.example.com/apt-103-join",
+      "status": "PAID"
+    }
+  ],
+  "invoices": [
+    {
+      "invoice_id": "INV-1001",
+      "appointment_id": 2,
+      "patient_id": 2,
+      "consultation_fee": 25.0,
+      "medicine_fee": 15.0,
+      "amount": 40.0,
+      "currency": "SGD",
+      "payment_status": "Pending Payment",
+      "stripe_charge_id": null,
+      "created_at": "2026-04-11T15:00:00"
+    },
+    {
+      "invoice_id": "INV-1002",
+      "appointment_id": 3,
+      "patient_id": 1,
+      "consultation_fee": 25.0,
+      "medicine_fee": 20.0,
+      "amount": 45.0,
+      "currency": "SGD",
+      "payment_status": "Paid",
+      "stripe_charge_id": "ch_1GQ7b2LJZg",
+      "created_at": "2026-04-12T16:30:00"
+    }
+  ],
+  "deliveries": [
+    {
+      "delivery_id": "DEL-2001",
+      "appointment_id": 3,
+      "patient_address": "123 Main St",
+      "tracking_number": "TRACK-1234",
+      "delivery_status": "SHIPPED"
+    },
+    {
+      "delivery_id": "DEL-2002",
+      "appointment_id": 2,
+      "patient_address": "456 Oak Ave",
+      "tracking_number": "TRACK-5678",
+      "delivery_status": "DELIVERED"
+    }
+  ],
+  "medicines": [
+    {
+      "medicine_code": "MED-001",
+      "medicine_name": "Paracetamol 500mg",
+      "stock_available": 100,
+      "unit_price": 1.50
+    },
+    {
+      "medicine_code": "MED-002",
+      "medicine_name": "Amoxicillin 250mg",
+      "stock_available": 50,
+      "unit_price": 0.80
+    },
+    {
+      "medicine_code": "MED-003",
+      "medicine_name": "Ibuprofen 400mg",
+      "stock_available": 75,
+      "unit_price": 1.20
+    }
+  ],
+  "reservations": [
+    {
+      "reservation_id": 1,
+      "medicine_code": "MED-002",
+      "appointment_id": 2,
+      "amount": 2
+    },
+    {
+      "reservation_id": 2,
+      "medicine_code": "MED-003",
+      "appointment_id": 3,
+      "amount": 1
+    }
+  ]
+}

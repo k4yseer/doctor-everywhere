@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     invoice_id VARCHAR(64) NOT NULL,
     appointment_id VARCHAR(64) NOT NULL,
     patient_id VARCHAR(64) NOT NULL,
+    consultation_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    medicine_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     amount DECIMAL(10,2) NOT NULL,
     currency VARCHAR(8) NOT NULL,
     payment_status VARCHAR(32) NOT NULL,

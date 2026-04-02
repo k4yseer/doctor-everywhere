@@ -16,9 +16,13 @@ Swagger(app)  # Swagger UI at /apidocs
 PATIENT_SERVICE_URL    = os.environ.get("PATIENT_SERVICE_URL",    "http://patient-service:5003")
 INVENTORY_SERVICE_URL  = os.environ.get("INVENTORY_SERVICE_URL",  "http://inventory-service:5009")
 APPOINTMENT_SERVICE_URL = os.environ.get("APPOINTMENT_SERVICE_URL", "http://appointment-service:5002")
+INVOICE_SERVICE_URL    = os.environ.get("INVOICE_SERVICE_URL",    "http://invoice-service:5008")
 PRESCRIPTION_SERVICE_URL = os.environ.get(
     "PRESCRIPTION_SERVICE_URL", 
     "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI")
+
+CONSULTATION_FEE = float(os.environ.get("CONSULTATION_FEE", 50.0))
+CURRENCY = os.environ.get("CURRENCY", "SGD")
 
 # ─── AMQP Config ───────────────────────────────────────────────────────────────
 AMQP_URL      = os.environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
@@ -94,6 +98,9 @@ def make_prescription():
     mc_start_date       = data.get("mc_start_date")
     mc_duration_days    = data.get("mc_duration_days")
     consultation_notes  = data.get("consultation_notes", "")
+    consultation_fee    = CONSULTATION_FEE
+    medicine_fee        = 0.0
+    currency            = CURRENCY
 
     if not all([appointment_id, patient_id]):
         return jsonify({"code": 400, "message": "Missing required fields"}), 400
@@ -133,8 +140,9 @@ def make_prescription():
     reservations = []
     for medicine in medicines:
         medicine_code = medicine.get("medicine_code")
+        dispense_quantity = medicine.get("dispense_quantity", 0)
         try:
-            dispense_quantity = int(medicine.get("dispense_quantity", 0))
+            dispense_quantity = int(dispense_quantity)
             if dispense_quantity <= 0:
                 raise ValueError()
         except (TypeError, ValueError):
@@ -146,11 +154,18 @@ def make_prescription():
                     timeout=5
                 )
                 if stock_resp.status_code != 200:
-                    pass # Legacy API graceful fallback
-
-                stock = stock_resp.json().get("data", {})
+                    stock = {}
+                else:
+                    stock = stock_resp.json().get("data", {})
                 if stock and stock.get("stock_available", 0) < dispense_quantity:
                     return jsonify({"code": 400, "message": f"Insufficient stock for {medicine_code}"}), 400
+                unit_price = stock.get("unit_price", 0.0)
+                try:
+                    unit_price = float(unit_price)
+                except (TypeError, ValueError):
+                    unit_price = 0.0
+
+                medicine_fee += round(unit_price * dispense_quantity, 2)
 
                 reserve_resp = requests.post(
                     f"{INVENTORY_SERVICE_URL}/inventory/reservations/",
@@ -262,12 +277,38 @@ def make_prescription():
         }
     )
 
+    try:
+        invoice_resp = requests.post(
+            f"{INVOICE_SERVICE_URL}/invoices/{appointment_id}",
+            json={
+                "patient_id": patient_id,
+                "consultation_fee": consultation_fee,
+                "medicine_fee": medicine_fee,
+                "amount": consultation_fee + medicine_fee,
+                "currency": currency,
+                "payment_status": "PENDING",
+            },
+            timeout=10,
+        )
+        if invoice_resp.status_code == 409:
+            # Invoice already exists → GET it instead
+            invoice_resp = requests.get(f"{INVOICE_SERVICE_URL}/invoices/{appointment_id}")
+            invoice = invoice_resp.json().get("data", {})
+        elif invoice_resp.status_code not in (200, 201):
+            raise Exception(f"Invoice service returned {invoice_resp.status_code}: {invoice_resp.text}")
+        else:
+            invoice = invoice_resp.json().get("data", {})
+    except Exception as e:
+        _publish_error("invoice_service", "INVOICE-500", str(e), data)
+        return jsonify({"code": 500, "message": "Failed to create invoice"}), 500
+
     return jsonify({
         "code": 201,
         "message": "Prescription created successfully",
         "data": {
             "prescriptions": out_prescriptions,
-            "reservations":  reservations
+            "reservations":  reservations,
+            "invoice": invoice,
         }
     }), 201
 

@@ -105,13 +105,6 @@ def make_prescription():
     except (TypeError, ValueError):
         return jsonify({"code": 400, "message": "appointment_id must be a positive integer"}), 400
 
-    try:
-        dispense_quantity = int(dispense_quantity)
-        if dispense_quantity <= 0:
-            raise ValueError()
-    except (TypeError, ValueError):
-        return jsonify({"code": 400, "message": "dispense_quantity must be a positive integer"}), 400
-
     # ── Step 3: Check patient allergies ────────────────────────────────────────
     try:
         allergy_resp = requests.get(
@@ -140,7 +133,12 @@ def make_prescription():
     reservations = []
     for medicine in medicines:
         medicine_code = medicine.get("medicine_code")
-        dispense_quantity = medicine.get("dispense_quantity", 0)
+        try:
+            dispense_quantity = int(medicine.get("dispense_quantity", 0))
+            if dispense_quantity <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            return jsonify({"code": 400, "message": "dispense_quantity must be a positive integer"}), 400
         if medicine_code and medicine_code != "MC":
             try:
                 stock_resp = requests.get(

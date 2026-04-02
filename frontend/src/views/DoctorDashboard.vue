@@ -81,17 +81,14 @@ async function loadMedicines() {
 
 // ── Call Next Patient (hydrates patient info on-demand) ─────────
 
-async function callNextPatient(isNoShow = false) {
+async function callNextPatient() {
   if (isCallingNext.value) return;
-  if (activePatient.value && !isNoShow) return;
+  if (activePatient.value) return;
 
   isCallingNext.value = true;
   try {
     const payload: Record<string, unknown> = { doctor_id: DOCTOR_ID };
-    if (isNoShow && activePatient.value?.appointment_id) {
-      payload.no_show_appointment_id = activePatient.value.appointment_id;
-    }
-    
+
      // Call setup-consultation (handles dequeueing, Zoom creation, appointment creation, and emailing patient)
     const { data } = await apiClient.post<any>('/setup-consultation/next-patient', payload);
     const pid = data.patient.patient_id;
@@ -138,13 +135,7 @@ async function callNextPatient(isNoShow = false) {
     
   } catch (err: any) {
     if (err.response?.status === 404) {
-      if (isNoShow) {
-        // No-show was processed but queue is now empty — clear the session
-        closeSession();
-        displayToast('No-show recorded. Queue is now empty.', 'warning');
-      } else {
-        displayToast('Queue is empty.', 'warning');
-      }
+      displayToast('Queue is empty.', 'warning');
       loadQueue();
     } else {
       console.error("Failed to setup consultation:", err);
@@ -210,13 +201,17 @@ async function submitConsultation() {
 }
 
 async function submitNoShow() {
-  if (!activePatient.value) return;
-  const name = activePatient.value.patient_name;
+  if (!activePatient.value?.appointment_id) return;
+  const { appointment_id, patient_name } = activePatient.value;
   try {
-    showNoShowConfirmation.value = false;
-    displayToast(`${name} marked as no-show.`, 'warning');
-    await callNextPatient(true); // Call next patient with isNoShow = true
-  } catch (e) { console.error("Failed to mark no-show:", e); }
+    await apiClient.post('/setup-consultation/no-show', { appointment_id });
+    displayToast(`${patient_name} marked as no-show.`, 'warning');
+    closeSession();
+    loadQueue();
+  } catch (e) {
+    console.error("Failed to mark no-show:", e);
+    displayToast('Failed to mark no-show. Please try again.', 'error');
+  }
 }
 
 function closeSession() {
@@ -277,7 +272,7 @@ function updateMedicalCertificateDraft(payload: MedicalCertificateDraft) {
       <div class="dd-grid">
         <!-- Left: Queue -->
         <section class="dd-queue">
-          <WaitingRoomPanel :queue-patients="queuePatients" :is-call-disabled="!!activePatient || isCallingNext" :is-loading="isCallingNext" @call-next="callNextPatient(false)" @refresh="loadQueue" />
+          <WaitingRoomPanel :queue-patients="queuePatients" :is-call-disabled="!!activePatient || isCallingNext" :is-loading="isCallingNext" @call-next="callNextPatient()" @refresh="loadQueue" />
         </section>
 
         <!-- Center: Consultation Notes -->

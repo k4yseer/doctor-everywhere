@@ -245,12 +245,15 @@ export const PostConsultService = {
       appointmentId: r.appointment.id,
       date: r.appointment.datetime ? new Date(r.appointment.datetime + 'Z').toISOString() : '',
       status: r.appointment.status,
+      doctor: r.appointment.doctor,
       prescriptions: r.prescription?.items?.map((p: any) => ({
         drugName: p.name,
         quantity: p.quantity,
       })) ?? [],
       billing: r.invoice
         ? {
+            medicine_fee: r.invoice.medicineFee ?? 0,
+            consultation_fee: r.invoice.consultationFee ?? 0,
             amount: r.invoice.total ?? 0,
             paymentStatus: r.invoice.status ?? 'Pending',
             deliveryStatus: r.delivery ?? 'Pending',
@@ -288,7 +291,7 @@ export const PostConsultService = {
         id: raw.appointmentId,
         consult_id: `CONSULT-${String(raw.appointmentId).padStart(3, '0')}`,
         patient_id,
-        doctor: { id: 0, name: 'Unknown', specialty: 'Unknown' },
+        doctor: raw.doctor ?? { id: 0, name: 'Unknown', specialty: 'Unknown' },
         datetime: raw.date,
         notes: '',
         status: raw.status,
@@ -309,8 +312,8 @@ export const PostConsultService = {
       },
       invoice: {
         id: raw.appointmentId,
-        consultation_fee: raw.billing?.amount ?? 0,
-        medicine_fee: 0,
+        consultation_fee: raw.billing?.consultation_fee ?? 0,
+        medicine_fee: raw.billing?.medicine_fee ?? 0,
         total: raw.billing?.amount ?? 0,
         status: raw.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
         currency: 'SGD',

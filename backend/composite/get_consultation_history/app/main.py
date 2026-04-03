@@ -547,7 +547,7 @@ class Query:
 schema = strawberry.Schema(query=Query)
 graphql_app = GraphQL(schema)
 app = Starlette(routes=[
-    Route("/graphql", graphql_app)
+    Route("/api/graphql", graphql_app)
 ])
 # app.add_url_rule(
 #     "/graphql",

@@ -259,7 +259,7 @@ function fmt(amount: number) {
 
           <div class="notes-box">
             <p class="notes-label">Doctor's Notes</p>
-            <p class="notes-text">{{ consultation.appointment.notes }}</p>
+            <p class="notes-text">{{ consultation.appointment.notes || 'No doctor notes recorded for this consultation.' }}</p>
           </div>
         </section>
 
@@ -285,12 +285,20 @@ function fmt(amount: number) {
               <div class="rx-top">
                 <div>
                   <span class="rx-name">{{ item.name }}</span>
-                  <span class="rx-dosage">{{ item.dosage }}</span>
+                  <span v-if="item.dosage" class="rx-dosage">{{ item.dosage }}</span>
                 </div>
-                <span class="rx-qty">{{ item.quantity }} {{ item.unit }}</span>
+                <div class="rx-right">
+                  <span class="rx-qty">{{ item.quantity }} {{ item.unit }}</span>
+                  <span v-if="item.line_total != null" class="rx-price">
+                    {{ consultation.invoice.currency }} {{ fmt(Number(item.line_total)) }}
+                  </span>
+                </div>
               </div>
-              <p class="rx-freq">{{ item.frequency }} · {{ item.duration }}</p>
-              <p class="rx-instructions">{{ item.instructions }}</p>
+              <p v-if="item.frequency || item.duration" class="rx-freq">
+                {{ [item.frequency, item.duration].filter(Boolean).join(' · ') }}
+              </p>
+              <p v-if="item.instructions" class="rx-instructions">{{ item.instructions }}</p>
+              <p v-else-if="!item.dosage" class="rx-instructions rx-instructions--muted">Dosage instructions unavailable.</p>
             </li>
           </ul>
         </section>
@@ -725,6 +733,12 @@ function fmt(amount: number) {
   gap: 0.5rem;
 }
 
+.rx-right {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
 .rx-name {
   font-size: 0.97rem;
   font-weight: 700;
@@ -748,6 +762,12 @@ function fmt(amount: number) {
   padding: 0.15rem 0.6rem;
 }
 
+.rx-price {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 600;
+}
+
 .rx-freq {
   font-size: 0.83rem;
   color: rgba(255, 255, 255, 0.5);
@@ -759,6 +779,10 @@ function fmt(amount: number) {
   color: rgba(255, 255, 255, 0.3);
   margin: 0;
   font-style: italic;
+}
+
+.rx-instructions--muted {
+  color: rgba(255, 255, 255, 0.22);
 }
 
 /* ── Delivery ───────────────────────────────────────────────── */

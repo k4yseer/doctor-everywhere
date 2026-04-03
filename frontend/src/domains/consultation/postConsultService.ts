@@ -25,6 +25,7 @@ export interface PrescriptionItem {
   quantity: number;
   unit: string;
   instructions: string;
+  line_total?: number;
 }
 
 export interface Prescription {
@@ -59,6 +60,13 @@ export interface ConsultationData {
 export interface MakePaymentPayload {
   appointment_id: number;
   patient_id: number;
+  amount: number;
+  currency: string;
+  paymentMethodId: string;
+  patient_address: string;
+  medicine_code: string;
+  reserve_amount: number;
+  phone_number: string;
 }
 
 export interface MakePaymentResponse {
@@ -68,6 +76,11 @@ export interface MakePaymentResponse {
 }
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+
+function timeValue(dateLike: unknown): number {
+  const t = new Date(String(dateLike ?? '')).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
 
 function mockDelay(ms = 900) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,6 +221,7 @@ export const PostConsultService = {
               duration
               unit
               instructions
+              lineTotal
             }
           }
           invoice {
@@ -265,6 +279,7 @@ export const PostConsultService = {
           },
     }));
 
+    historyItems.sort((a, b) => timeValue(b.date) - timeValue(a.date))
     return historyItems;
   },
 
@@ -288,7 +303,7 @@ export const PostConsultService = {
           }
           prescription {
             id
-            items { id name dosage frequency duration quantity unit instructions }
+            items { id name dosage frequency duration quantity unit instructions lineTotal }
           }
           invoice {
             id consultationFee medicineFee total status currency
@@ -310,9 +325,13 @@ export const PostConsultService = {
       throw new Error('No consultation data found');
     }
 
+    const sortedRecords = [...records].sort(
+      (a, b) => timeValue(b?.appointment?.datetime) - timeValue(a?.appointment?.datetime),
+    )
+
     const r = appointment_id
-      ? records.find((item: any) => item.appointment.id === appointment_id)
-      : records[records.length - 1];
+      ? sortedRecords.find((item: any) => item.appointment.id === appointment_id)
+      : sortedRecords[0];
 
     if (!r) {
       throw new Error(`Appointment ${appointment_id} not found`);
@@ -333,21 +352,22 @@ export const PostConsultService = {
         items: (r.prescription?.items ?? []).map((p: any) => ({
           id: p.id,
           name: p.name ?? '',
-          dosage: p.dosage ?? '',
+          dosage: p.dosage ?? p.dosageInstructions ?? p.dosage_instructions ?? '',
           frequency: p.frequency ?? '',
           duration: p.duration ?? '',
           quantity: p.quantity ?? 0,
           unit: p.unit ?? '',
           instructions: p.instructions ?? '',
+          line_total: Number(p.lineTotal ?? p.line_total ?? p.totalPrice ?? p.total_price ?? 0) || undefined,
         })),
       },
       invoice: {
-        id: r.appointmentId,
-        consultation_fee: r.billing?.consultation_fee ?? 0,
-        medicine_fee: r.billing?.medicine_fee ?? 0,
-        total: r.billing?.amount ?? 0,
-        status: r.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
-        currency: 'SGD',
+        id: r.invoice?.id ?? r.appointment.id,
+        consultation_fee: r.invoice?.consultationFee ?? 0,
+        medicine_fee: r.invoice?.medicineFee ?? 0,
+        total: r.invoice?.total ?? 0,
+        status: r.invoice?.status === 'PAID' || r.invoice?.status === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
+        currency: r.invoice?.currency ?? 'SGD',
       },
       delivery: r.delivery
         ? {

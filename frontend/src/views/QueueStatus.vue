@@ -125,20 +125,15 @@ async function refresh() {
       const latestStatus = await getLatestAppointmentStatus(selectedPatientId.value)
       const postQueueState = mapStatusToPostQueueState(latestStatus)
 
-      if (postQueueState) {
-        state.value = postQueueState
-        if (postQueueState === 'no_show') {
-          queue.value = null
-        }
+      if (postQueueState === 'no_show') {
+        state.value = 'no_show'
+        queue.value = null
         return
       }
 
-      if (state.value === 'called') {
-        // Keep called sticky if status has not moved to NO_SHOW yet.
-      } else {
-        state.value = 'error'
-        errorMsg.value = 'Queue status changed, but appointment state is not ready yet. Please return home and check again.'
-      }
+      // If queue no longer has this patient, treat it as called by default.
+      // Appointment status can still later move to NO_SHOW on a subsequent refresh.
+      state.value = 'called'
       return
     }
 

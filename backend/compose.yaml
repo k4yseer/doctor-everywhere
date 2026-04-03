@@ -403,7 +403,9 @@ services:
       - INVENTORY_SERVICE_URL=http://inventory-service:5009
       - PRESCRIPTION_SERVICE_URL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI
       - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
-      - EXCHANGE_NAME=topic_logs
+      - EXCHANGE_NAME=notifications
+      - APPOINTMENT_SERVICE_URL=http://appointment-service:5002
+      - INVOICE_SERVICE_URL=http://invoice-service:5008
     depends_on:
       patient-service:
         condition: service_started

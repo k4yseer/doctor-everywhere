@@ -48,18 +48,15 @@ const notesComplete = computed(() => props.notes.trim().length > 0);
 <template>
   <div class="consult-panel">
     <template v-if="activePatient">
-      <!-- Header -->
-      <div class="panel-header">
-        <div class="header-left">
-          <span class="status-indicator" :class="'status--' + consultationStatus">
-            {{ getStatusDisplay(consultationStatus).icon }}
-          </span>
-          <div class="header-text">
-            <h2>Clinical Notes</h2>
-            <span class="status-label">{{ getStatusDisplay(consultationStatus).label }}</span>
-          </div>
+      <!-- Session Overview -->
+      <div class="session-overview">
+        <div class="session-meta">
+          <h2>Consultation Session</h2>
+          <p>{{ activePatient.patient_name }} (ID: {{ activePatient.patient_id }})</p>
         </div>
-        <div class="patient-chip">{{ activePatient.patient_name }}</div>
+        <span class="session-status" :class="'session-status--' + consultationStatus">
+          {{ getStatusDisplay(consultationStatus).label }}
+        </span>
       </div>
 
       <!-- Video Call Section -->
@@ -198,7 +195,7 @@ const notesComplete = computed(() => props.notes.trim().length > 0);
   overflow: hidden;
 }
 
-.panel-header {
+.session-overview {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -206,50 +203,10 @@ const notesComplete = computed(() => props.notes.trim().length > 0);
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.status-indicator {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 700;
-}
-
-.status--idle {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.4);
-}
-.status--connecting {
-  background: rgba(251, 191, 36, 0.12);
-  color: #fbbf24;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-.status--active {
-  background: rgba(16, 185, 129, 0.12);
-  color: #34d399;
-}
-.status--ended {
-  background: rgba(156, 163, 175, 0.12);
-  color: #9ca3af;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-.header-text {
+.session-meta {
   display: flex;
   flex-direction: column;
-  gap: 0.05rem;
+  gap: 0.12rem;
 }
 
 h2 {
@@ -259,19 +216,40 @@ h2 {
   letter-spacing: -0.01em;
 }
 
-.status-label {
-  font-size: 0.68rem;
-  color: rgba(255, 255, 255, 0.35);
+.session-meta p {
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
 }
 
-.patient-chip {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  color: #34d399;
+.session-status {
   font-size: 0.72rem;
   font-weight: 600;
-  padding: 0.35rem 0.65rem;
+  padding: 0.36rem 0.68rem;
   border-radius: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.session-status--idle {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.session-status--connecting {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.25);
+  background: rgba(251, 191, 36, 0.1);
+}
+
+.session-status--active {
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.session-status--ended {
+  color: #9ca3af;
 }
 
 /* Video Section */

@@ -41,6 +41,15 @@ function displayToast(message: string, type: 'success' | 'warning' | 'error' = '
   toastTimer = setTimeout(() => { showToast.value = false; }, 4000);
 }
 
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  const maybeResponse = (error as { response?: { data?: { message?: unknown } } })?.response;
+  const message = maybeResponse?.data?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message.trim();
+  }
+  return fallback;
+}
+
 const mcDraft = ref<MedicalCertificateDraft>({
   leaveDays: 1,
   diagnosisSummary: "",
@@ -69,7 +78,27 @@ onUnmounted(() => {
 async function loadQueue() {
   try {
     const res = await QueueService.getAll();
-    queuePatients.value = res.data ?? [];
+    const entries = res.data ?? [];
+
+    const uniquePatientIds = Array.from(new Set(entries.map((e) => String(e.patient_id))));
+    const patientNameMap = new Map<string, string>();
+
+    await Promise.all(
+      uniquePatientIds.map(async (pid) => {
+        try {
+          const details = await patientService.getById(pid);
+          const name = details?.data?.patient_name;
+          if (name) patientNameMap.set(pid, name);
+        } catch {
+          // Keep queue rendering resilient when patient-details lookup fails.
+        }
+      }),
+    );
+
+    queuePatients.value = entries.map((entry) => ({
+      ...entry,
+      patient_name: patientNameMap.get(String(entry.patient_id)) ?? `Patient ${entry.patient_id}`,
+    }));
   } catch (e) { console.error("Failed to fetch queue:", e); }
 }
 
@@ -194,9 +223,9 @@ async function submitConsultation() {
 
     displayToast(`Consultation for ${p.patient_name} submitted successfully.`, 'success');
     closeSession();
-  } catch (e) {
+  } catch (e: unknown) {
     console.error("Failed to submit consultation:", e);
-    displayToast('Failed to submit consultation. Please try again.', 'error');
+    displayToast(getApiErrorMessage(e, 'Failed to submit consultation. Please try again.'), 'error');
   }
 }
 

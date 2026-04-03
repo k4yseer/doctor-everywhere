@@ -59,7 +59,7 @@ Dequeue the next patient and set up the consultation.
 ```json
 {
   "code": 200,
-  "patient": { "patient_id": "10000001", "patient_name": "Jane Doe", "email": "jane@example.com" },
+  "patient": { "patient_id": 1, "patient_name": "Jane Doe", "email": "jane@example.com" },
   "appointment_id": 7,
   "meet_link": "https://zoom.us/j/123456789",
   "start_url": "https://zoom.us/s/123456789?zak=abc"

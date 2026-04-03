@@ -241,7 +241,7 @@ def get_appointment(id):
             example: 1
           patient_id:
             type: integer
-            example: 10000001
+            example: 1
           doctor_id:
             type: integer
             example: 1
@@ -280,7 +280,7 @@ def get_appointments_by_patient(patient_id):
         name: patient_id
         type: integer
         required: true
-        example: 10000001
+        example: 1
     responses:
       200:
         description: List of appointments for the patient
@@ -326,7 +326,7 @@ def create_appointment():
           properties:
             patient_id:
               type: integer
-              example: 10000001
+              example: 1
             doctor_id:
               type: integer
               example: 1

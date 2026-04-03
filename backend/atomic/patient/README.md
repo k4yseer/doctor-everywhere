@@ -52,7 +52,7 @@ Check a patient's allergies against a list of prescribed drugs.
 
 **Request body:**
 ```json
-{ "patient_id": "10000001", "prescription": ["Aspirin", "Ibuprofen"] }
+{ "patient_id": 1, "prescription": ["Aspirin", "Ibuprofen"] }
 ```
 
 **Response `200` — no allergies:**
@@ -75,7 +75,7 @@ Retrieve full details for a single patient.
 
 **Response `200`:**
 ```json
-{ "code": 200, "data": { "patient_id": "10000001", "patient_name": "Jane Doe", "email": "jane@example.com" } }
+{ "code": 200, "data": { "patient_id": 1, "patient_name": "Jane Doe", "email": "jane@example.com" } }
 ```
 
 **Response `404`:** Patient not found.

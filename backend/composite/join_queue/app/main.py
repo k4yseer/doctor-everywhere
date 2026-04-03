@@ -100,8 +100,8 @@ def join_queue():
             - patient_id
           properties:
             patient_id:
-              type: string
-              example: "10000001"
+              type: integer
+              example: 1
     responses:
       200:
         description: Patient already in queue — position returned by queue service
@@ -190,7 +190,7 @@ def join_queue():
     }), queue_res.status_code
 
 
-@app.route("/api/join-queue/status/<string:patient_id>", methods=["GET"])
+@app.route("/api/join-queue/status/<int:patient_id>", methods=["GET"])
 def get_queue_status(patient_id):
     """
     Get a patient's current queue position and estimated wait time.
@@ -201,9 +201,9 @@ def get_queue_status(patient_id):
     parameters:
       - in: path
         name: patient_id
-        type: string
+        type: integer
         required: true
-        example: "10000001"
+        example: 1
     responses:
       200:
         description: Queue status retrieved

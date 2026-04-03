@@ -1,7 +1,7 @@
 {
   "patients": [
     {
-      "patient_id": "10000001",
+      "patient_id": 1,
       "patient_name": "John Doe",
       "date_of_birth": "1990-05-15",
       "gender": "Male",
@@ -11,7 +11,7 @@
       "allergies": ["Penicillin", "Aspirin"]
     },
     {
-      "patient_id": "10000002",
+      "patient_id": 2,
       "patient_name": "Jane Smith",
       "date_of_birth": "1988-11-22",
       "gender": "Female",
@@ -38,7 +38,7 @@
   "appointments": [
     {
       "id": 1,
-      "patient_id": 10000001,
+      "patient_id": 1,
       "doctor_id": 1,
       "slot_datetime": "2026-04-10T09:00:00",
       "start_url": "https://meet.example.com/apt-101-start",
@@ -47,7 +47,7 @@
     },
     {
       "id": 2,
-      "patient_id": 10000002,
+      "patient_id": 2,
       "doctor_id": 2,
       "slot_datetime": "2026-04-11T14:30:00",
       "start_url": "https://meet.example.com/apt-102-start",
@@ -56,7 +56,7 @@
     },
     {
       "id": 3,
-      "patient_id": 10000001,
+      "patient_id": 1,
       "doctor_id": 2,
       "slot_datetime": "2026-04-12T16:00:00",
       "start_url": "https://meet.example.com/apt-103-start",
@@ -65,7 +65,7 @@
     },
     {
       "id": 4,
-      "patient_id": 10000002,
+      "patient_id": 2,
       "doctor_id": 1,
       "slot_datetime": "2026-04-15T11:00:00",
       "start_url": "https://meet.example.com/apt-104-start",
@@ -74,7 +74,7 @@
     },
     {
       "id": 5,
-      "patient_id": 10000001,
+      "patient_id": 1,
       "doctor_id": 1,
       "slot_datetime": "2026-04-16T10:30:00",
       "start_url": "https://meet.example.com/apt-105-start",
@@ -86,7 +86,7 @@
     {
       "invoice_id": "INV-1001",
       "appointment_id": 2,
-      "patient_id": "10000002",
+      "patient_id": 2,
       "consultation_fee": 25.0,
       "medicine_fee": 15.0,
       "amount": 40.0,
@@ -98,7 +98,7 @@
     {
       "invoice_id": "INV-1002",
       "appointment_id": 3,
-      "patient_id": "10000001",
+      "patient_id": 1,
       "consultation_fee": 25.0,
       "medicine_fee": 20.0,
       "amount": 45.0,
@@ -110,7 +110,7 @@
     {
       "invoice_id": "INV-1003",
       "appointment_id": 4,
-      "patient_id": "10000002",
+      "patient_id": 2,
       "consultation_fee": 30.0,
       "medicine_fee": 10.0,
       "amount": 40.0,
@@ -122,7 +122,7 @@
     {
       "invoice_id": "INV-1004",
       "appointment_id": 5,
-      "patient_id": "10000001",
+      "patient_id": 1,
       "consultation_fee": 35.0,
       "medicine_fee": 15.0,
       "amount": 50.0,

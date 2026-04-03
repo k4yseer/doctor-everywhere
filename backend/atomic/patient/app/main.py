@@ -4,7 +4,7 @@ from sqlalchemy import select
 from werkzeug.exceptions import HTTPException
 from app.models import Patient, Allergies
 from app.database import engine, SessionLocal
-from app import models, seed
+from app import models
 from app.error_publisher import publish_error
 
 app = Flask(__name__)
@@ -20,8 +20,6 @@ swagger = Swagger(app, template={
 with app.app_context():
     models.Base.metadata.create_all(bind=engine)
 
-# to insert dummy data
-seed.register_cli(app)
 
 def get_db():
     if 'db' not in g:
@@ -72,8 +70,8 @@ def check_allergies():
           type: object
           properties:
             patient_id:
-              type: string
-              example: "10000001"
+              type: integer
+              example: 1
             prescription:
               type: array
               items:
@@ -142,7 +140,7 @@ def check_allergies():
     )
 
 
-@app.route("/patient/<string:patient_id>/details")
+@app.route("/patient/<int:patient_id>/details")
 def find_by_id(patient_id):
     """
     Get patient details by ID
@@ -150,9 +148,9 @@ def find_by_id(patient_id):
     parameters:
       - name: patient_id
         in: path
-        type: string
+        type: integer
         required: true
-        example: "10000001"
+        example: 1
     responses:
       200:
         description: Patient details retrieved successfully
@@ -219,7 +217,7 @@ def get_all_patients():
     })
 
 
-@app.route("/patients/<string:patient_id>/allergies", methods=['GET'])
+@app.route("/patients/<int:patient_id>/allergies", methods=['GET'])
 def get_patient_allergies(patient_id):
     """
     Get patient allergies
@@ -227,9 +225,9 @@ def get_patient_allergies(patient_id):
     parameters:
       - name: patient_id
         in: path
-        type: string
+        type: integer
         required: true
-        example: "10000001"
+        example: 1
     responses:
       200:
         description: List of patient allergies

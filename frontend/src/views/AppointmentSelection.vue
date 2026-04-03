@@ -8,7 +8,7 @@ const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const appointments = ref<ConsultationHistoryItem[]>([])
-const patientId = Number(route.query.patientId ?? import.meta.env.VITE_DEFAULT_PATIENT_ID ?? 10000001)
+const patientId = Number(route.query.patientId ?? import.meta.env.VITE_DEFAULT_PATIENT_ID ?? 1)
 
 async function loadAppointments() {
   loading.value = true

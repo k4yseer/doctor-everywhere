@@ -3,7 +3,7 @@ import os
 from datetime import date
 from pathlib import Path
 
-from sqlalchemy import Column, Date, ForeignKey, String, create_engine, delete
+from sqlalchemy import Column, Date, ForeignKey, String, create_engine, delete, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Paths and DB URL
@@ -71,7 +71,7 @@ def seed():
         # Insert patients first
         patients = []
         for patient in data.get("patients", []):
-            patient_id = str(patient["patient_id"])
+            patient_id = patient["patient_id"]
             dob = patient.get("date_of_birth")
             patients.append(
                 Patient(
@@ -90,7 +90,7 @@ def seed():
         # Insert allergies next
         allergies = []
         for patient in data.get("patients", []):
-            patient_id = str(patient["patient_id"])
+            patient_id = patient["patient_id"]
             for allergy in patient.get("allergies", []):
                 allergies.append(Allergy(patient_id=patient_id, allergy=allergy))
         if allergies:

@@ -1,4 +1,3 @@
-import axios from "axios";
 import apiClient from "../../core/apiClient";
 
 export interface ConsultDoctor {
@@ -230,7 +229,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await axios.post('/graphql', {
+    const { data } = await apiClient.post('/graphql', {
       query,
       variables: { patientId: patient_id },
     });
@@ -301,7 +300,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await axios.post('/graphql', {
+    const { data } = await apiClient.post('/graphql', {
       query,
       variables: { patientId: patient_id },
     });
@@ -350,23 +349,6 @@ export const PostConsultService = {
         status: r.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
         currency: 'SGD',
       },
-      delivery: r.billing?.deliveryStatus
-        ? {
-            id: r.invoice.id ?? r.appointment.id,
-            consultation_fee: r.invoice.consultationFee ?? 0,
-            medicine_fee: r.invoice.medicineFee ?? 0,
-            total: r.invoice.total ?? 0,
-            status: r.invoice.status === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
-            currency: r.invoice.currency ?? 'SGD',
-          }
-        : {
-            id: r.appointment.id,
-            consultation_fee: 0,
-            medicine_fee: 0,
-            total: 0,
-            status: 'PENDING_PAYMENT',
-            currency: 'SGD',
-          },
       delivery: r.delivery
         ? {
             id: r.delivery.id ?? 0,

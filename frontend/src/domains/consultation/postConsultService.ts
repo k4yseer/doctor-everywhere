@@ -1,3 +1,4 @@
+import axios from "axios";
 import apiClient from "../../core/apiClient";
 
 export interface ConsultDoctor {
@@ -229,7 +230,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await apiClient.post('/graphql', {
+    const { data } = await axios.post('/graphql', {
       query,
       variables: { patientId: patient_id },
     });
@@ -274,62 +275,105 @@ export const PostConsultService = {
       return buildMockData(appointment_id ?? 42, patient_id);
     }
 
-    const history = await this.getConsultationHistory(patient_id);
-    if (history.length === 0) {
+    const query = `
+      query ($patientId: Int!) {
+        consultationHistory(patientId: $patientId) {
+          appointment {
+            id
+            consultId
+            patientId
+            doctor { id name specialty }
+            datetime
+            notes
+            status
+          }
+          prescription {
+            id
+            items { id name dosage frequency duration quantity unit instructions }
+          }
+          invoice {
+            id consultationFee medicineFee total status currency
+          }
+          delivery {
+            id trackingNumber address status estimatedDate
+          }
+        }
+      }
+    `;
+
+    const { data } = await axios.post('/graphql', {
+      query,
+      variables: { patientId: patient_id },
+    });
+
+    const records: any[] = data?.data?.consultationHistory ?? [];
+    if (records.length === 0) {
       throw new Error('No consultation data found');
     }
 
-    const raw = appointment_id
-      ? history.find((item) => item.appointmentId === appointment_id)
-      : history[history.length - 1];
+    const r = appointment_id
+      ? records.find((item: any) => item.appointment.id === appointment_id)
+      : records[records.length - 1];
 
-    if (!raw) {
+    if (!r) {
       throw new Error(`Appointment ${appointment_id} not found`);
     }
+
     return {
       appointment: {
-        id: raw.appointmentId,
-        consult_id: `CONSULT-${String(raw.appointmentId).padStart(3, '0')}`,
+        id: r.appointment.id,
+        consult_id: r.appointment.consultId ?? `CONSULT-${String(r.appointment.id).padStart(3, '0')}`,
         patient_id,
-        doctor: raw.doctor ?? { id: 0, name: 'Unknown', specialty: 'Unknown' },
-        datetime: raw.date,
-        notes: '',
-        status: raw.status,
+        doctor: r.appointment.doctor ?? { id: 0, name: 'Unknown', specialty: 'Unknown' },
+        datetime: r.appointment.datetime,
+        notes: r.appointment.notes ?? '',
+        status: r.appointment.status,
       },
       prescription: {
-        id: 0,
-        items:
-          raw.prescriptions?.map((p: any, idx: number) => ({
-            id: idx + 1,
-            name: p.drugName,
-            dosage: '',
-            frequency: '',
-            duration: '',
-            quantity: p.quantity,
-            unit: '',
-            instructions: '',
-          })) ?? [],
+        id: r.prescription?.id ?? 0,
+        items: (r.prescription?.items ?? []).map((p: any) => ({
+          id: p.id,
+          name: p.name ?? '',
+          dosage: p.dosage ?? '',
+          frequency: p.frequency ?? '',
+          duration: p.duration ?? '',
+          quantity: p.quantity ?? 0,
+          unit: p.unit ?? '',
+          instructions: p.instructions ?? '',
+        })),
       },
       invoice: {
-        id: raw.appointmentId,
-        consultation_fee: raw.billing?.consultation_fee ?? 0,
-        medicine_fee: raw.billing?.medicine_fee ?? 0,
-        total: raw.billing?.amount ?? 0,
-        status: raw.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
+        id: r.appointmentId,
+        consultation_fee: r.billing?.consultation_fee ?? 0,
+        medicine_fee: r.billing?.medicine_fee ?? 0,
+        total: r.billing?.amount ?? 0,
+        status: r.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
         currency: 'SGD',
       },
-      delivery: raw.billing?.deliveryStatus
+      delivery: r.billing?.deliveryStatus
         ? {
-            id: 0,
-            tracking_number: '',
-            address: '',
-            status:
-              raw.billing.deliveryStatus === 'Delivered'
-                ? 'DELIVERED'
-                : raw.billing.deliveryStatus === 'Dispatched'
-                ? 'DISPATCHED'
-                : 'PENDING',
-            estimated_date: '',
+            id: r.invoice.id ?? r.appointment.id,
+            consultation_fee: r.invoice.consultationFee ?? 0,
+            medicine_fee: r.invoice.medicineFee ?? 0,
+            total: r.invoice.total ?? 0,
+            status: r.invoice.status === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
+            currency: r.invoice.currency ?? 'SGD',
+          }
+        : {
+            id: r.appointment.id,
+            consultation_fee: 0,
+            medicine_fee: 0,
+            total: 0,
+            status: 'PENDING_PAYMENT',
+            currency: 'SGD',
+          },
+      delivery: r.delivery
+        ? {
+            id: r.delivery.id ?? 0,
+            tracking_number: r.delivery.trackingNumber ?? '',
+            address: r.delivery.address ?? '',
+            status: r.delivery.status === 'DELIVERED' ? 'DELIVERED' : r.delivery.status === 'DISPATCHED' ? 'DISPATCHED' : 'PENDING',
+            estimated_date: r.delivery.estimatedDate ?? '',
           }
         : null,
     };

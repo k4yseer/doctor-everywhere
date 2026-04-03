@@ -108,7 +108,7 @@ async function createPaymentMethod(): Promise<string | null> {
 }
 
 onMounted(async () => {
-  const patientId = parseRouteId(route.query.patientId) ?? 1
+  const patientId = parseRouteId(route.query.patientId) ?? 10000001
   const appointmentId = parseRouteId(route.query.appointmentId)
   consultation.value = await PostConsultService.getConsultation(patientId, appointmentId)
   if (consultation.value.delivery) {

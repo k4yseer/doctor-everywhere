@@ -27,6 +27,7 @@ class Appointment(Base):
     start_url = Column(String(512), nullable=True)
     join_url = Column(String(512), nullable=True)
     status = Column(Enum(*APPOINTMENT_STATUSES), nullable=False, default="CONFIRMED")
+    clinical_notes = Column(String(5000), nullable=True)
 
 
 def load_seed_data():
@@ -54,6 +55,7 @@ def seed():
                     start_url=item["start_url"],
                     join_url=item["join_url"],
                     status=item["status"],
+                    clinical_notes=item.get("clinical_notes"),
                 )
             )
 

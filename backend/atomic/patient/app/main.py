@@ -32,6 +32,20 @@ def close_db(exception=None):
     if db is not None:
         db.close()
 
+
+def _normalize_text(value):
+  if value is None:
+    return ""
+  return " ".join(str(value).lower().split())
+
+
+def _allergy_matches(prescription_item, allergy_item):
+  prescription_norm = _normalize_text(prescription_item)
+  allergy_norm = _normalize_text(allergy_item)
+  if not prescription_norm or not allergy_norm:
+    return False
+  return allergy_norm in prescription_norm or prescription_norm in allergy_norm
+
 def error_response(status_code, message, error_code, payload=None):
     publish_error(
         source_service="patient_service",
@@ -115,7 +129,7 @@ def check_allergies():
     allergic_drugs = []
 
     for item in prescription_list:
-        if item in allergy_list:
+      if any(_allergy_matches(item, allergy) for allergy in allergy_list):
             passed = False
             allergic_drugs.append(item)
     

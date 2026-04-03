@@ -1,6 +1,7 @@
 export interface QueuePatient {
   id: number;
   patient_id: string;
+  patient_name: string;
   created_at: string;
 }
 

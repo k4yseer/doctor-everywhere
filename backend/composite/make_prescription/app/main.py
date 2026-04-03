@@ -114,22 +114,37 @@ def make_prescription():
 
     # ── Step 3: Check patient allergies ────────────────────────────────────────
     try:
-        allergy_resp = requests.get(
-            f"{PATIENT_SERVICE_URL}/patients/{patient_id}/allergies",
+        prescription_names = [
+            str(m.get("medication_name", "")).strip()
+            for m in medicines
+            if str(m.get("medicine_code", "")).upper() != "MC" and str(m.get("medication_name", "")).strip()
+        ]
+
+        allergy_resp = requests.post(
+            f"{PATIENT_SERVICE_URL}/patient/check-allergies",
+            json={
+                "patient_id": patient_id,
+                "prescription": prescription_names,
+            },
             timeout=5
         )
+
         if allergy_resp.status_code == 200:
-            allergies = allergy_resp.json().get("data", [])
-            allergy_list = [a.get("allergy", "").lower() for a in allergies]
-            for medicine in medicines:
-                medication_name = medicine.get("medication_name", "")
-                if medication_name and medication_name.lower() in allergy_list:
+            allergy_data = allergy_resp.json().get("data", {})
+            if allergy_data.get("check") == "FAILED":
+                allergic_drugs = allergy_data.get("allergic_drugs") or []
+                if allergic_drugs:
                     return jsonify({
                         "code": 400,
-                        "message": f"Patient is allergic to {medication_name}"
+                        "message": f"Patient is allergic to {', '.join(map(str, allergic_drugs))}",
                     }), 400
-        elif allergy_resp.status_code != 404:
-            # 404 just means no allergies on record — that's fine
+                return jsonify({
+                    "code": 400,
+                    "message": "Patient has an allergy conflict with prescribed medicine",
+                }), 400
+        elif allergy_resp.status_code == 404:
+            return jsonify({"code": 404, "message": "Patient not found"}), 404
+        else:
             raise Exception(f"Patient service returned {allergy_resp.status_code}")
 
     except Exception as e:
@@ -165,7 +180,10 @@ def make_prescription():
                 except (TypeError, ValueError):
                     unit_price = 0.0
 
-                medicine_fee += round(unit_price * dispense_quantity, 2)
+                line_total = round(unit_price * dispense_quantity, 2)
+                medicine["unit_price"] = unit_price
+                medicine["total_price"] = line_total
+                medicine_fee += line_total
 
                 reserve_resp = requests.post(
                     f"{INVENTORY_SERVICE_URL}/inventory/reservations/",
@@ -199,6 +217,7 @@ def make_prescription():
                     "medicine_code":       "MC",
                     "dosage_instructions": "-",
                     "dispense_quantity":   0,
+                    "total_price":         0.0,
                     "mc_start_date":       mc_start_date,
                     "mc_duration_days":    int(mc_duration_days) if mc_duration_days else 0,
                 },
@@ -228,6 +247,7 @@ def make_prescription():
                         "medicine_code":       medicine_code,
                         "dosage_instructions": medicine.get("dosage_instructions") or "",
                         "dispense_quantity":   int(medicine.get("dispense_quantity") or 0),
+                        "total_price":         float(medicine.get("total_price") or 0.0),
                         "mc_start_date":       mc_start_date if mc_start_date else "1900-01-01",
                         "mc_duration_days":    int(mc_duration_days) if mc_duration_days else 0,
                     },

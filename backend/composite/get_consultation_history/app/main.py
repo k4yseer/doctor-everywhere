@@ -98,60 +98,163 @@ def _default_billing():
 async def _extract_prescription_block_async(client, appointment_id):
     mc = _default_mc()
     prescriptions = []
-
-    # Try OutSystems for MC data
+    normalized_rows = []
+    # Required endpoint from spec.
     res = await _safe_get_async(client, f"{PRESCRIPTION_URL}/GetPrescription", params={"AppointmentId": appointment_id})
-    if res and res.status_code < 400:
+    if not res or res.status_code == 404:
+        return mc, prescriptions
+    if res.status_code >= 400:
+        return mc, prescriptions
+
+    try:
+        payload = _extract_data(res.json())
+    except ValueError:
+        return mc, prescriptions
+
+    rows = payload if isinstance(payload, list) else [payload]
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        # Common MC key patterns for varied upstream payloads.
+        has_mc = row.get("has_mc")
+        if has_mc is None:
+            has_mc = row.get("hasMC")
+        if has_mc is None and (row.get("mc_start_date") or row.get("mcStartDate")):
+            has_mc = True
+
+        if has_mc is not None:
+            mc["has_mc"] = bool(has_mc)
+
+        mc_start = row.get("start_date") or row.get("mc_start_date") or row.get("mcStartDate")
+        if mc_start:
+            mc["start_date"] = mc_start
+
+        duration = row.get("duration_days") or row.get("mc_duration_days") or row.get("mcDurationDays")
+        if duration is not None:
+            try:
+                mc["duration_days"] = int(duration)
+            except (TypeError, ValueError):
+                pass
+
+        medicine_code = row.get("medicine_code") or row.get("drug_code")
+        if medicine_code and str(medicine_code).upper() == "MC":
+            continue
+
+        drug_name = row.get("drug_name") or row.get("drugName") or row.get("medicine_name") or row.get("name")
+        quantity = row.get("dispense_quantity")
+        if quantity is None:
+            quantity = row.get("dispenseQuantity")
+        if quantity is None:
+            quantity = row.get("quantity")
+        if quantity is None:
+            quantity = row.get("qty")
+
         try:
-            payload = _extract_data(res.json())
-        except ValueError:
-            payload = None
+            qty_val = int(quantity) if quantity is not None else 0
+        except (TypeError, ValueError):
+            qty_val = 0
 
-        if payload:
-            rows = payload if isinstance(payload, list) else [payload]
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                has_mc = row.get("has_mc") or row.get("hasMC")
-                if has_mc is None and (row.get("mc_start_date") or row.get("mcStartDate")):
-                    has_mc = True
-                if has_mc is not None:
-                    mc["has_mc"] = bool(has_mc)
-                mc_start = row.get("start_date") or row.get("mc_start_date") or row.get("mcStartDate")
-                if mc_start:
-                    mc["start_date"] = mc_start
-                duration = row.get("duration_days") or row.get("mc_duration_days") or row.get("mcDurationDays")
-                if duration is not None:
-                    try:
-                        mc["duration_days"] = int(duration)
-                    except (TypeError, ValueError):
-                        pass
+        dosage = row.get("dosage_instructions") or row.get("dosageInstructions")
+        extra_instructions = row.get("instructions")
 
-    # Use inventory reservations as the source for medicine items
-    res = await _safe_get_async(client, f"{INVENTORY_URL}/inventory/reservations/appointment/{appointment_id}")
-    if res and res.status_code < 400:
-        try:
-            reservations = res.json()
-            if not isinstance(reservations, list):
-                reservations = []
-        except ValueError:
-            reservations = []
+        raw_unit_price = row.get("unit_price")
+        if raw_unit_price is None:
+            raw_unit_price = row.get("unitPrice")
+        unit_price = None
+        if raw_unit_price is not None:
+            try:
+                unit_price = float(raw_unit_price)
+            except (TypeError, ValueError):
+                unit_price = None
 
-        for rv in reservations:
-            if not isinstance(rv, dict):
-                continue
-            code = rv.get("medicine_code", "")
-            qty = rv.get("amount", 0)
-            name = code
-            med_res = await _safe_get_async(client, f"{INVENTORY_URL}/inventory/{code}")
+        raw_total_price = row.get("total_price")
+        if raw_total_price is None:
+            raw_total_price = row.get("totalPrice")
+        if raw_total_price is None:
+            raw_total_price = row.get("line_total")
+        if raw_total_price is None:
+            raw_total_price = row.get("lineTotal")
+        line_total = None
+        if raw_total_price is not None:
+            try:
+                line_total = float(raw_total_price)
+            except (TypeError, ValueError):
+                line_total = None
+
+        if not drug_name and medicine_code:
+            drug_name = str(medicine_code)
+
+        if drug_name:
+            normalized_rows.append(
+                {
+                    "medicine_code": str(medicine_code) if medicine_code else None,
+                    "drug_name": str(drug_name),
+                    "quantity": qty_val,
+                    "dosage": dosage,
+                    "instructions": extra_instructions,
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                }
+            )
+
+    # Consolidate duplicate rows (same medicine + same dosage) into one line item.
+    aggregated = {}
+    for row in normalized_rows:
+        key = (row.get("medicine_code") or row.get("drug_name"), row.get("dosage") or "")
+        if key not in aggregated:
+            aggregated[key] = dict(row)
+        else:
+            aggregated[key]["quantity"] = int(aggregated[key].get("quantity") or 0) + int(row.get("quantity") or 0)
+            existing_total = aggregated[key].get("line_total")
+            incoming_total = row.get("line_total")
+            if existing_total is not None and incoming_total is not None:
+                aggregated[key]["line_total"] = float(existing_total) + float(incoming_total)
+            elif existing_total is None:
+                aggregated[key]["line_total"] = incoming_total
+
+            if aggregated[key].get("unit_price") is None and row.get("unit_price") is not None:
+                aggregated[key]["unit_price"] = row.get("unit_price")
+
+            if not aggregated[key].get("instructions") and row.get("instructions"):
+                aggregated[key]["instructions"] = row.get("instructions")
+
+    for row in aggregated.values():
+        medicine_code = row.get("medicine_code")
+        drug_name = row.get("drug_name")
+        qty_val = int(row.get("quantity") or 0)
+        dosage = row.get("dosage")
+        extra_instructions = row.get("instructions")
+        unit_price = row.get("unit_price")
+        line_total = row.get("line_total")
+
+        # Optional name enrichment only; pricing should come from prescription snapshot.
+        if medicine_code and (not drug_name or str(drug_name) == str(medicine_code)):
+            med_res = await _safe_get_async(client, f"{INVENTORY_URL}/inventory/{medicine_code}")
             if med_res and med_res.status_code < 400:
                 try:
                     med_data = _extract_data(med_res.json())
                     if isinstance(med_data, dict):
-                        name = med_data.get("medicine_name", code)
-                except ValueError:
+                        drug_name = med_data.get("medicine_name") or str(medicine_code)
+                except (ValueError, TypeError):
                     pass
-            prescriptions.append({"drug_name": name, "quantity": qty})
+
+        if not drug_name and medicine_code:
+            drug_name = str(medicine_code)
+
+        if drug_name:
+            prescriptions.append(
+                {
+                    "drug_name": str(drug_name),
+                    "quantity": qty_val,
+                    "dosage": dosage,
+                    "instructions": extra_instructions,
+                    "unit": "unit(s)",
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                }
+            )
 
     return mc, prescriptions
 
@@ -305,7 +408,7 @@ async def _build_bundle(client, appt, patient_id, doctor_cache):
             patient_id=patient_id,
             doctor=doctor_obj,
             datetime=appt.get("date") or appt.get("slot_datetime"),
-            notes=appt.get("clinical_notes"),
+            notes=appt.get("clinical_notes") or "No doctor notes recorded for this consultation.",
             status=_friendly_status(appt.get("status")),
         )
 
@@ -316,7 +419,12 @@ async def _build_bundle(client, appt, patient_id, doctor_cache):
                     PrescriptionItem(
                         id=i + 1,
                         name=item["drug_name"],
+                        dosage=item.get("dosage"),
+                        unit=item.get("unit"),
+                        instructions=item.get("instructions"),
                         quantity=item["quantity"],
+                        unit_price=item.get("unit_price"),
+                        line_total=item.get("line_total"),
                     )
                     for i, item in enumerate(prescriptions)
                 ],
@@ -419,6 +527,8 @@ class PrescriptionItem:
     quantity: int
     unit: Optional[str] = None
     instructions: Optional[str] = None
+    unit_price: Optional[float] = None
+    line_total: Optional[float] = None
 
 @strawberry.type
 class Prescription:
@@ -507,6 +617,8 @@ class Query:
                         duration=getattr(item, "duration", None),
                         unit=getattr(item, "unit", None),
                         instructions=getattr(item, "instructions", None),
+                        unit_price=getattr(item, "unit_price", None),
+                        line_total=getattr(item, "line_total", None),
                     )
                     for item in (b.prescription.items if b.prescription else [])
                 ]

@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { QueueService } from '../domains/appointment/queueService'
+import { patientService } from '../domains/patient/patientService'
 
 type PageState = 'joining' | 'queued' | 'error'
-
-// HARD CODED PATIENT ID
-const PATIENT_ID = 1
 
 const router = useRouter()
 
@@ -16,15 +14,19 @@ const queue = ref<{ queue_position: number; waiting_time: number } | null>(null)
 const errorMsg = ref('')
 const refreshing = ref(false)
 const showNoDoctersToast = ref(false)
+const selectedPatientId = ref('')
+const selectedPatientName = ref('')
 
 function triggerNoDoctersToast() {
   showNoDoctersToast.value = true
   setTimeout(() => router.push('/'), 3000)
 }
 
-async function init() {
+async function joinQueueForSelectedPatient() {
+  state.value = 'joining'
+
   try {
-    queue.value = await QueueService.joinQueue(PATIENT_ID)
+    queue.value = await QueueService.joinQueue(selectedPatientId.value)
     state.value = 'queued'
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.data?.message === 'No doctors available') {
@@ -41,7 +43,7 @@ async function init() {
 async function refresh() {
   refreshing.value = true
   try {
-    const entry = await QueueService.getQueueStatus(PATIENT_ID)
+    const entry = await QueueService.getQueueStatus(selectedPatientId.value)
     queue.value = entry
   } catch {
     // keep last known state on failure
@@ -50,10 +52,40 @@ async function refresh() {
   }
 }
 
+async function init() {
+  try {
+    const saved = localStorage.getItem('demoPatientId')
+
+    if (saved) {
+      const details = await patientService.getById(saved)
+      const payload = details?.data
+      selectedPatientId.value = String(payload?.patient_id ?? saved)
+      selectedPatientName.value = String(payload?.patient_name ?? `Patient ${saved}`)
+    } else {
+      const listing = await patientService.getAll()
+      const first = listing?.data?.[0]
+      if (!first) {
+        throw new Error('No patients available. Please set a profile on the landing page.')
+      }
+      selectedPatientId.value = String(first.patient_id)
+      selectedPatientName.value = String(first.patient_name)
+      localStorage.setItem('demoPatientId', selectedPatientId.value)
+    }
+
+    await joinQueueForSelectedPatient()
+  } catch (err) {
+    state.value = 'error'
+    errorMsg.value = axios.isAxiosError(err)
+      ? (err.response?.data?.message ?? 'Unable to resolve active profile. Please choose one on the landing page.')
+      : err instanceof Error
+        ? err.message
+        : 'Unable to resolve active profile. Please choose one on the landing page.'
+  }
+}
+
 function leaveQueue() {
   router.push('/')
 }
-
 
 onMounted(init)
 </script>
@@ -94,6 +126,7 @@ onMounted(init)
         </div>
 
         <h2 class="state-title">You're in the queue</h2>
+        <p class="state-sub">Active patient: {{ selectedPatientName }} ({{ selectedPatientId }})</p>
         <p class="state-sub">
           Estimated wait: ~{{ queue!.waiting_time }} min
         </p>

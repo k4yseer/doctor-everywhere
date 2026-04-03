@@ -79,8 +79,12 @@ def get_deliveries_by_patient(patient_id):
         # patient_id is resolved by the composite service before calling here
         # delivery records are looked up via appointment_id passed as query param
         appointment_id = request.args.get("appointment_id")
-
         if appointment_id:
+            try:
+                appointment_id = int(appointment_id)  # <-- FIX: convert to integer
+            except ValueError:
+                return jsonify({"code": 400, "message": "Invalid appointment_id"}), 400
+
             deliveries = session.execute(
                 select(Delivery).where(Delivery.appointment_id == appointment_id)
             ).scalars().all()
@@ -257,11 +261,25 @@ def start_amqp_consumer():
             connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
             channel = connection.channel()
             channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
-            result = channel.queue_declare(queue=QUEUE_NAME, durable=True)
-            queue_name = result.method.queue
-            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=PAYMENT_SUCCESS_ROUTING_KEY)
+            channel.queue_declare(
+                queue=QUEUE_NAME,
+                durable=True,
+                arguments={
+                    "x-dead-letter-exchange": EXCHANGE_NAME,
+                    "x-dead-letter-routing-key": f"{QUEUE_NAME}.dlq",
+                }
+            )
+            channel.queue_bind(
+                exchange=EXCHANGE_NAME,
+                queue=QUEUE_NAME,
+                routing_key=PAYMENT_SUCCESS_ROUTING_KEY
+            )
+            channel.queue_declare(
+                queue=f"{QUEUE_NAME}.dlq",
+                durable=True
+            )
             channel.basic_qos(prefetch_count=1)
-            channel.basic_consume(queue=queue_name, on_message_callback=process_payment_success)
+            channel.basic_consume(queue=QUEUE_NAME, on_message_callback=process_payment_success)
             channel.start_consuming()
         except Exception:
             app.logger.exception("Delivery service AMQP consumer error")

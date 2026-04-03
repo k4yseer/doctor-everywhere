@@ -59,13 +59,6 @@ export interface ConsultationData {
 export interface MakePaymentPayload {
   appointment_id: number;
   patient_id: number;
-  amount: number;
-  currency: string;
-  paymentMethodId: string;
-  patient_address: string;
-  medicine_code: string;
-  reserve_amount: number;
-  phone_number: string;
 }
 
 export interface MakePaymentResponse {
@@ -80,12 +73,12 @@ function mockDelay(ms = 900) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function buildMockData(): ConsultationData {
+function buildMockData(appointmentId = 42, patientId = 1): ConsultationData {
   return {
     appointment: {
-      id: 42,
-      consult_id: "CONSULT-2026-001",
-      patient_id: 1,
+      id: appointmentId,
+      consult_id: `CONSULT-${String(appointmentId).padStart(3, '0')}`,
+      patient_id: patientId,
       doctor: {
         id: 7,
         name: "Dr. Sarah Chen",
@@ -144,91 +137,196 @@ function buildMockData(): ConsultationData {
   };
 }
 
+export interface ConsultationHistoryItem {
+  appointmentId: number;
+  date: string;
+  status: string;
+  prescriptions?: Array<{ drugName: string; quantity: number }>;
+  billing?: {
+    amount?: number;
+    paymentStatus?: string;
+    deliveryStatus?: string;
+  };
+}
+
+function buildMockHistory(): ConsultationHistoryItem[] {
+  return [
+    {
+      appointmentId: 1,
+      date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      status: 'PENDING_PAYMENT',
+      prescriptions: [{ drugName: 'Paracetamol', quantity: 20 }],
+      billing: {
+        amount: 78.5,
+        paymentStatus: 'Pending Payment',
+        deliveryStatus: 'Pending',
+      },
+    },
+    {
+      appointmentId: 2,
+      date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      status: 'PAID',
+      prescriptions: [{ drugName: 'Amoxicillin', quantity: 21 }],
+      billing: {
+        amount: 120,
+        paymentStatus: 'Paid',
+        deliveryStatus: 'Delivered',
+      },
+    },
+  ];
+}
+
 export const PostConsultService = {
-  /**
-   * GET /consultation-history/{patient_id}
-   * Fetches merged consultation data: appointment + prescription + invoice + delivery
-   */
-  async getConsultation(patient_id: number): Promise<ConsultationData> {
+  async getConsultationHistory(patient_id: number): Promise<ConsultationHistoryItem[]> {
     if (USE_MOCK) {
       await mockDelay();
-      return buildMockData();
+      return buildMockHistory();
     }
 
     const query = `
       query ($patientId: Int!) {
         consultationHistory(patientId: $patientId) {
-          appointmentId
-          date
-          status
-          prescriptions {
-            drugName
-            quantity
+          appointment {
+            id
+            consultId
+            datetime
+            status
+            notes
+            doctor {
+              id
+              name
+              specialty
+            }
           }
-          billing {
-            amount
-            paymentStatus
-            deliveryStatus
+          prescription {
+            items {
+              id
+              name
+              quantity
+              dosage
+              frequency
+              duration
+              unit
+              instructions
+            }
+          }
+          invoice {
+            id
+            consultationFee
+            medicineFee
+            total
+            status
+            currency
+          }
+          delivery {
+            id
+            trackingNumber
+            address
+            status
+            estimatedDate
           }
         }
       }
     `;
 
-    const { data } = await apiClient.post("/graphql", {
+    const { data } = await apiClient.post('/graphql', {
       query,
       variables: { patientId: patient_id },
     });
 
     const rawData = data?.data?.consultationHistory;
-    if (!Array.isArray(rawData) || rawData.length === 0) {
-      throw new Error("No consultation data found");
+    if (!Array.isArray(rawData)) {
+      throw new Error('No consultation history found');
+    }
+    console.log(rawData)
+
+    // Map GraphQL response to frontend structure
+    const historyItems: ConsultationHistoryItem[] = rawData.map((r: any) => ({
+      appointmentId: r.appointment.id,
+      date: r.appointment.datetime ? new Date(r.appointment.datetime + 'Z').toISOString() : '',
+      status: r.appointment.status,
+      prescriptions: r.prescription?.items?.map((p: any) => ({
+        drugName: p.name,
+        quantity: p.quantity,
+      })) ?? [],
+      billing: r.invoice
+        ? {
+            amount: r.invoice.total ?? 0,
+            paymentStatus: r.invoice.status ?? 'Pending',
+            deliveryStatus: r.delivery ?? 'Pending',
+          }
+        : {
+            amount: 0,
+            paymentStatus: 'Pending',
+            deliveryStatus: r.delivery ?? 'Pending',
+          },
+    }));
+
+    return historyItems;
+  },
+
+  async getConsultation(patient_id: number, appointment_id?: number): Promise<ConsultationData> {
+    if (USE_MOCK) {
+      await mockDelay();
+      return buildMockData(appointment_id ?? 42, patient_id);
     }
 
-    // Take the most recent consultation
-    const raw = rawData[rawData.length - 1];
+    const history = await this.getConsultationHistory(patient_id);
+    if (history.length === 0) {
+      throw new Error('No consultation data found');
+    }
+
+    const raw = appointment_id
+      ? history.find((item) => item.appointmentId === appointment_id)
+      : history[history.length - 1];
+
+    if (!raw) {
+      throw new Error(`Appointment ${appointment_id} not found`);
+    }
     return {
       appointment: {
         id: raw.appointmentId,
-        consult_id: String(raw.appointmentId),
+        consult_id: `CONSULT-${String(raw.appointmentId).padStart(3, '0')}`,
         patient_id,
-        doctor: { id: 0, name: "Unknown", specialty: "Unknown" },
+        doctor: { id: 0, name: 'Unknown', specialty: 'Unknown' },
         datetime: raw.date,
-        notes: "",
+        notes: '',
         status: raw.status,
       },
       prescription: {
         id: 0,
-        items: raw.prescriptions?.map((p: any, idx: number) => ({
-          id: idx + 1,
-          name: p.drugName,
-          dosage: "",
-          frequency: "",
-          duration: "",
-          quantity: p.quantity,
-          unit: "",
-          instructions: "",
-        })) ?? [],
+        items:
+          raw.prescriptions?.map((p: any, idx: number) => ({
+            id: idx + 1,
+            name: p.drugName,
+            dosage: '',
+            frequency: '',
+            duration: '',
+            quantity: p.quantity,
+            unit: '',
+            instructions: '',
+          })) ?? [],
       },
       invoice: {
         id: raw.appointmentId,
         consultation_fee: raw.billing?.amount ?? 0,
         medicine_fee: 0,
         total: raw.billing?.amount ?? 0,
-        status: raw.billing?.paymentStatus === "Paid" ? "PAID" : "PENDING_PAYMENT",
-        currency: "SGD",
+        status: raw.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
+        currency: 'SGD',
       },
       delivery: raw.billing?.deliveryStatus
         ? {
             id: 0,
-            tracking_number: "",
-            address: "",
+            tracking_number: '',
+            address: '',
             status:
-              raw.billing.deliveryStatus === "Delivered"
-                ? "DELIVERED"
-                : raw.billing.deliveryStatus === "Dispatched"
-                ? "DISPATCHED"
-                : "PENDING",
-            estimated_date: "",
+              raw.billing.deliveryStatus === 'Delivered'
+                ? 'DELIVERED'
+                : raw.billing.deliveryStatus === 'Dispatched'
+                ? 'DISPATCHED'
+                : 'PENDING',
+            estimated_date: '',
           }
         : null,
     };

@@ -1,22 +1,28 @@
 import os
-from typing import Optional
+import asyncio
+from typing import Optional, List
 
-import requests
+import httpx
 import strawberry
+import uvicorn
+from strawberry.asgi import GraphQL
 from flask import Flask, jsonify, request
 from strawberry.flask.views import GraphQLView
 from werkzeug.exceptions import HTTPException
+from starlette.applications import Starlette
+from starlette.routing import Route
 
 from app.error_publisher import publish_error as _publish_error
 
-app = Flask(__name__)
+# app = Flask(__name__)
 
 SERVICE_NAME = "consultation-orchestrator"
 
 # Required environment variables/defaults from spec.
 APPOINTMENT_URL = os.environ.get("appointmentURL", "http://appointment-service:5002")
-INVOICE_URL = os.environ.get("invoiceURL", "http://invoice-service:5005")
-DELIVERY_URL = os.environ.get("deliveryURL", "http://delivery-service:5006")
+INVOICE_URL = os.environ.get("invoiceURL", "http://invoice-service:5008")
+DELIVERY_URL = os.environ.get("deliveryURL", "http://delivery-service:5014")
+DOCTOR_URL = os.environ.get("doctorURL", "http://doctor-service:5001")
 PRESCRIPTION_URL = os.environ.get(
     "prescriptionURL",
     "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI",
@@ -36,28 +42,28 @@ def error_response(status_code, message, error_code, payload=None):
     return jsonify({"code": status_code, "message": message}), status_code
 
 
-@app.errorhandler(Exception)
-def handle_unexpected_error(err):
-    if isinstance(err, HTTPException):
-        return error_response(
-            err.code or 500,
-            err.description,
-            f"CONSULT-HISTORY-{err.code or 500}-HTTP",
-            {"path": request.path, "method": request.method},
-        )
+# @app.errorhandler(Exception)
+# def handle_unexpected_error(err):
+#     if isinstance(err, HTTPException):
+#         return error_response(
+#             err.code or 500,
+#             err.description,
+#             f"CONSULT-HISTORY-{err.code or 500}-HTTP",
+#             {"path": request.path, "method": request.method},
+#         )
 
-    return error_response(
-        500,
-        "Internal server error",
-        "CONSULT-HISTORY-500-UNHANDLED",
-        {"path": request.path, "method": request.method, "error": str(err)},
-    )
+#     return error_response(
+#         500,
+#         "Internal server error",
+#         "CONSULT-HISTORY-500-UNHANDLED",
+#         {"path": request.path, "method": request.method, "error": str(err)},
+#     )
 
 
-def _safe_get(url, params=None):
+async def _safe_get_async(client: httpx.AsyncClient, url, params=None):
     try:
-        return requests.get(url, params=params, timeout=TIMEOUT_SECONDS)
-    except requests.RequestException:
+        return await client.get(url, params=params)
+    except httpx.RequestError:
         return None
 
 
@@ -88,12 +94,12 @@ def _default_billing():
     }
 
 
-def _extract_prescription_block(appointment_id):
+async def _extract_prescription_block_async(client, appointment_id):
     mc = _default_mc()
     prescriptions = []
 
     # Required endpoint from spec.
-    res = _safe_get(f"{PRESCRIPTION_URL}/GetPrescription", params={"AppointmentId": appointment_id})
+    res = await _safe_get_async(client, f"{PRESCRIPTION_URL}/GetPrescription", params={"AppointmentId": appointment_id})
     if not res or res.status_code == 404:
         return mc, prescriptions
     if res.status_code >= 400:
@@ -143,12 +149,39 @@ def _extract_prescription_block(appointment_id):
 
     return mc, prescriptions
 
+async def _extract_doctor_async(client, doctor_id, doctor_cache):
+    if not doctor_id:
+        return None
+    if doctor_id in doctor_cache:
+        return doctor_cache[doctor_id]
 
-def _extract_invoice_block(appointment_id):
+    res = await _safe_get_async(client, f"{DOCTOR_URL}/doctors/{doctor_id}")
+
+    if not res or res.status_code >= 400:
+        return None
+
+    try:
+        payload = _extract_data(res.json())
+    except ValueError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    result = {
+        "id": payload.get("id"),
+        "name": payload.get("name"),
+        "specialty": payload.get("specialty"),
+    }
+    doctor_cache[doctor_id] = result
+    return result
+
+
+async def _extract_invoice_block_async(client, appointment_id):
     billing = _default_billing()
     invoice_id = None
 
-    res = _safe_get(f"{INVOICE_URL}/invoices/{appointment_id}")
+    res = await _safe_get_async(client, f"{INVOICE_URL}/invoices/{appointment_id}")
 
     if not res or res.status_code == 404:
         return billing, invoice_id
@@ -186,35 +219,122 @@ def _extract_invoice_block(appointment_id):
     return billing, invoice_id
 
 
-def _extract_delivery_status(appointment_id, patient_id, invoice_id):
+async def _extract_delivery_status_async(client, appointment_id, patient_id, invoice_id):
     # Required endpoint from spec.
-    res = _safe_get(f"{DELIVERY_URL}/deliveries/appointment/{appointment_id}")
+    res = await _safe_get_async(
+        client,
+        f"{DELIVERY_URL}/deliveries/{patient_id}",
+        params={"appointment_id": appointment_id}
+    )
 
     # Optional route mentioned in spec.
     if res and res.status_code == 404 and invoice_id:
-        res = _safe_get(f"{DELIVERY_URL}/deliveries/invoice/{invoice_id}")
+        res = await _safe_get_async(client, f"{DELIVERY_URL}/deliveries/invoice/{invoice_id}")
 
     # Fallback to current atomic delivery implementation.
     if res and res.status_code == 404:
-        res = _safe_get(f"{DELIVERY_URL}/deliveries/{patient_id}", params={"appointment_id": appointment_id})
+        res = await _safe_get_async(client, f"{DELIVERY_URL}/deliveries/{patient_id}", params={"appointment_id": appointment_id})
 
     if not res or res.status_code == 404 or res.status_code >= 400:
-        return "Pending"
+        return None
 
     try:
         payload = _extract_data(res.json())
     except ValueError:
-        return "Pending"
+        return None
 
     if isinstance(payload, list) and payload:
         row = payload[0]
-        if isinstance(row, dict):
-            return row.get("delivery_status", "Pending")
+    elif isinstance(payload, dict):
+        row = payload
+    else:
+        return None
 
-    if isinstance(payload, dict):
-        return payload.get("delivery_status", "Pending")
+    if isinstance(row, dict):
+        return {
+            "id": row.get("delivery_id"),
+            "tracking_number": row.get("tracking_number"),
+            "address": row.get("patient_address"),
+            "status": row.get("delivery_status"),
+        }
 
-    return "Pending"
+    return None
+
+semaphore = asyncio.Semaphore(10)
+async def _build_bundle(client, appt, patient_id, doctor_cache):
+    async with semaphore:
+        raw_id = appt.get("appointment_id", appt.get("id"))
+        if raw_id is None:
+            return None
+
+        try:
+            appointment_id = int(raw_id)
+        except (TypeError, ValueError):
+            return None
+        doctor_id = appt.get("doctor_id")
+
+        prescription_task = _extract_prescription_block_async(client, appointment_id)
+        invoice_task = _extract_invoice_block_async(client, appointment_id)
+        doctor_task = _extract_doctor_async(client, doctor_id, doctor_cache)
+
+        (mc_block, prescriptions), (invoice_data, invoice_id), doctor_data = await asyncio.gather(
+            prescription_task,
+            invoice_task,
+            doctor_task,
+        )
+
+        delivery_status = await _extract_delivery_status_async(
+            client, appointment_id, patient_id, invoice_id
+        )
+
+        doctor_obj = ConsultDoctor(
+            id=doctor_data["id"] if doctor_data else None,
+            name=doctor_data["name"] if doctor_data else "Unknown",
+            specialty=doctor_data["specialty"] if doctor_data else "Unknown",
+        )
+
+        appointment_obj = ConsultAppointment(
+            id=appointment_id,
+            consult_id=f"CONSULT-{str(appointment_id).zfill(3)}",
+            patient_id=patient_id,
+            doctor=doctor_obj,
+            datetime=appt.get("date") or appt.get("slot_datetime"),
+            notes=appt.get("clinical_notes"),
+            status=_friendly_status(appt.get("status")),
+        )
+
+        prescription_obj = (
+            Prescription(
+                id=appointment_id,
+                items=[
+                    PrescriptionItem(
+                        id=i + 1,
+                        name=item["drug_name"],
+                        quantity=item["quantity"],
+                    )
+                    for i, item in enumerate(prescriptions)
+                ],
+            )
+            if prescriptions
+            else None
+        )
+
+        invoice_obj = None
+        if invoice_id:
+            invoice_obj = {
+                "id": invoice_id,
+                "consultation_fee": invoice_data["consultation_fee"],
+                "medicine_fee": invoice_data["medicine_fee"],
+                "total": invoice_data["amount"],
+                "status": invoice_data["payment_status"],
+            }
+
+        return ConsultationData(
+            appointment=appointment_obj,
+            prescription=prescription_obj,
+            invoice=invoice_obj,
+            delivery=delivery_status,
+        )
 
 
 # Legacy REST rollback reference (disabled).
@@ -249,8 +369,8 @@ def _extract_delivery_status(appointment_id, patient_id, invoice_id):
 #         appt_patient_id = appt.get("patient_id", patient_id)
 #
 #         mc, prescriptions = _extract_prescription_block(appointment_id)
-#         billing, invoice_id = _extract_invoice_block(appointment_id)
-#         billing["delivery_status"] = _extract_delivery_status(appointment_id, appt_patient_id, invoice_id)
+#         billing, invoice_id = _extract_invoice_block_async(appointment_id)
+#         billing["delivery_status"] = _extract_delivery_status_async(appointment_id, appt_patient_id, invoice_id)
 #
 #         history_list.append(
 #             {
@@ -266,155 +386,174 @@ def _extract_delivery_status(appointment_id, patient_id, invoice_id):
 #     return jsonify(history_list), 200
 
 
+# GraphQL Types
 @strawberry.type
-class MC:
-    has_mc: bool
-    start_date: Optional[str]
-    duration_days: int
+class ConsultDoctor:
+    id: Optional[int]
+    name: Optional[str]
+    specialty: Optional[str]
 
+@strawberry.type
+class ConsultAppointment:
+    id: int
+    consult_id: str
+    patient_id: int
+    doctor: ConsultDoctor
+    datetime: Optional[str]
+    notes: Optional[str]
+    status: str
+
+@strawberry.type
+class PrescriptionItem:
+    id: int
+    name: str
+    dosage: Optional[str] = None
+    frequency: Optional[str] = None
+    duration: Optional[str] = None
+    quantity: int
+    unit: Optional[str] = None
+    instructions: Optional[str] = None
 
 @strawberry.type
 class Prescription:
-    drug_name: str
-    quantity: int
-
-
-@strawberry.type
-class Billing:
-    amount: float
-    payment_status: str
-    delivery_status: str
-
+    id: int
+    items: List[PrescriptionItem]
 
 @strawberry.type
-class Appointment:
-    appointment_id: int
-    date: Optional[str]
+class Invoice:
+    id: Optional[str]
+    consultation_fee: float
+    medicine_fee: float
+    total: float
     status: str
-    clinical_notes: Optional[str]
-    _patient_id: strawberry.Private[int]
-    _mc_cache: strawberry.Private[Optional[MC]] = None
-    _prescriptions_cache: strawberry.Private[Optional[list[Prescription]]] = None
-    _billing_cache: strawberry.Private[Optional[Billing]] = None
+    currency: Optional[str] = "SGD"
 
-    @strawberry.field
-    def mc(self) -> MC:
-        if self._mc_cache is not None:
-            return self._mc_cache
+@strawberry.type
+class Delivery:
+    id: Optional[str]
+    tracking_number: Optional[str]
+    address: Optional[str]
+    status: Optional[str]
+    estimated_date: Optional[str]
 
-        mc_block, prescriptions_block = _extract_prescription_block(self.appointment_id)
-        self._mc_cache = MC(
-            has_mc=bool(mc_block.get("has_mc", False)),
-            start_date=mc_block.get("start_date"),
-            duration_days=int(mc_block.get("duration_days", 0)),
-        )
-        self._prescriptions_cache = [
-            Prescription(
-                drug_name=str(item.get("drug_name", "")),
-                quantity=int(item.get("quantity", 0)),
-            )
-            for item in prescriptions_block
-            if isinstance(item, dict) and item.get("drug_name")
-        ]
-        return self._mc_cache
-
-    @strawberry.field
-    def prescriptions(self) -> list[Prescription]:
-        if self._prescriptions_cache is not None:
-            return self._prescriptions_cache
-
-        mc_block, prescriptions_block = _extract_prescription_block(self.appointment_id)
-        self._mc_cache = MC(
-            has_mc=bool(mc_block.get("has_mc", False)),
-            start_date=mc_block.get("start_date"),
-            duration_days=int(mc_block.get("duration_days", 0)),
-        )
-        self._prescriptions_cache = [
-            Prescription(
-                drug_name=str(item.get("drug_name", "")),
-                quantity=int(item.get("quantity", 0)),
-            )
-            for item in prescriptions_block
-            if isinstance(item, dict) and item.get("drug_name")
-        ]
-        return self._prescriptions_cache
-
-    @strawberry.field
-    def billing(self) -> Billing:
-        if self._billing_cache is not None:
-            return self._billing_cache
-
-        billing_block, invoice_id = _extract_invoice_block(self.appointment_id)
-        billing_block["delivery_status"] = _extract_delivery_status(
-            self.appointment_id,
-            self._patient_id,
-            invoice_id,
-        )
-        self._billing_cache = Billing(
-            amount=float(billing_block.get("amount", 0.0)),
-            payment_status=str(billing_block.get("payment_status", "Pending")),
-            delivery_status=str(billing_block.get("delivery_status", "Pending")),
-        )
-        return self._billing_cache
-
+@strawberry.type
+class ConsultationData:
+    appointment: ConsultAppointment
+    prescription: Prescription
+    invoice: Optional[Invoice]
+    delivery: Optional[Delivery]
 
 @strawberry.type
 class Query:
+
     @strawberry.field
-    def consultation_history(self, patient_id: int) -> list[Appointment]:
-        # Main/base call only: appointment service.
-        appointment_res = _safe_get(f"{APPOINTMENT_URL}/appointments/patient/{patient_id}")
-
-        # Preserve existing behavior: return empty list on 404/errors.
-        if not appointment_res or appointment_res.status_code == 404 or appointment_res.status_code >= 400:
-            return []
-
-        try:
-            appt_payload = _extract_data(appointment_res.json())
-        except ValueError:
-            return []
-
-        appointments = appt_payload if isinstance(appt_payload, list) else []
-        history_list: list[Appointment] = []
-
-        for appt in appointments:
-            if not isinstance(appt, dict):
-                continue
-
-            appointment_id = appt.get("appointment_id", appt.get("id"))
-            if appointment_id is None:
-                continue
+    async def consultationHistory(self, patientId: int) -> List[ConsultationData]:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            # Fetch appointments for patient
+            res = await _safe_get_async(client, f"{APPOINTMENT_URL}/appointments/patient/{patientId}")
+            if not res or res.status_code >= 400:
+                return []
 
             try:
-                appointment_id_int = int(appointment_id)
-            except (TypeError, ValueError):
-                continue
+                appointments_data = _extract_data(res.json())
+            except ValueError:
+                return []
 
-            raw_patient_id = appt.get("patient_id", patient_id)
-            try:
-                appt_patient_id = int(raw_patient_id)
-            except (TypeError, ValueError):
-                appt_patient_id = patient_id
+            appointments_list = appointments_data if isinstance(appointments_data, list) else [appointments_data]
 
-            history_list.append(
-                Appointment(
-                    appointment_id=appointment_id_int,
-                    date=appt.get("date") or appt.get("slot_datetime"),
-                    status=_friendly_status(appt.get("status")),
-                    clinical_notes=appt.get("clinical_notes"),
-                    _patient_id=appt_patient_id,
+            # Doctor cache to prevent repeated calls
+            doctor_cache = {}
+
+            # Build bundles concurrently with a semaphore
+            tasks = [
+                _build_bundle(client, appt, patientId, doctor_cache)
+                for appt in appointments_list
+            ]
+            bundles = await asyncio.gather(*tasks)
+
+            # Filter out any None results
+            valid_bundles = [b for b in bundles if b is not None]
+
+            # Convert to GraphQL types
+            graphql_results = []
+            for b in valid_bundles:
+                appointment_obj = ConsultAppointment(
+                    id=b.appointment.id,
+                    consult_id=b.appointment.consult_id,
+                    patient_id=b.appointment.patient_id,
+                    doctor=ConsultDoctor(
+                        id=b.appointment.doctor.id,
+                        name=b.appointment.doctor.name,
+                        specialty=b.appointment.doctor.specialty
+                    ),
+                    datetime=b.appointment.datetime,
+                    notes=b.appointment.notes,
+                    status=b.appointment.status
                 )
-            )
 
-        return history_list
+                prescription_items = [
+                    PrescriptionItem(
+                        id=item.id,
+                        name=item.name,
+                        quantity=item.quantity,
+                        dosage=getattr(item, "dosage", None),
+                        frequency=getattr(item, "frequency", None),
+                        duration=getattr(item, "duration", None),
+                        unit=getattr(item, "unit", None),
+                        instructions=getattr(item, "instructions", None),
+                    )
+                    for item in (b.prescription.items if b.prescription else [])
+                ]
+
+                prescription_obj = Prescription(
+                    id=b.prescription.id if b.prescription else b.appointment.id,
+                    items=prescription_items
+                )
+
+                invoice_obj = None
+                if b.invoice:
+                    invoice_obj = Invoice(
+                        id=b.invoice["id"],
+                        consultation_fee=b.invoice["consultation_fee"],
+                        medicine_fee=b.invoice["medicine_fee"],
+                        total=b.invoice["total"],
+                        status=b.invoice["status"],
+                        currency="SGD"
+                    )
+
+                delivery_obj = None
+                if b.delivery:
+                    delivery_obj = Delivery(
+                        id=b.delivery.get("id"),
+                        tracking_number=b.delivery.get("tracking_number"),
+                        address=b.delivery.get("address"),
+                        status=b.delivery.get("status"),
+                        estimated_date=None
+                    )
+
+                graphql_results.append(
+                    ConsultationData(
+                        appointment=appointment_obj,
+                        prescription=prescription_obj,
+                        invoice=invoice_obj,
+                        delivery=delivery_obj
+                    )
+                )
+
+            return graphql_results
+
 
 
 schema = strawberry.Schema(query=Query)
-app.add_url_rule(
-    "/graphql",
-    view_func=GraphQLView.as_view("graphql_view", schema=schema),
-)
+graphql_app = GraphQL(schema)
+app = Starlette(routes=[
+    Route("/graphql", graphql_app)
+])
+# app.add_url_rule(
+#     "/graphql",
+#     view_func=GraphQLView.as_view("graphql_view", schema=schema),
+# )
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5013, debug=True)
+    uvicorn.run(app, host="0.0.0.0", port=5013)

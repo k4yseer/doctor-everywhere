@@ -3,10 +3,8 @@
  * Uses the get-consultation-history GraphQL composite service
  * to fetch past visit history for a patient (doctor-side view).
  */
-import apiClient from '@/core/apiClient';
+import axios from 'axios';
 import type { PatientHistory } from './components/doctor-dashboard/types';
-
-const GRAPHQL_PATH = '/get-consultation-history/graphql';
 
 /**
  * Fetch past consultations for a patient (doctor-relevant fields only).
@@ -16,16 +14,18 @@ export async function getPatientVisitHistory(patientId: string): Promise<Patient
   const query = `
     query ($patientId: Int!) {
       consultationHistory(patientId: $patientId) {
-        appointmentId
-        date
-        status
-        clinicalNotes
+        appointment {
+          id
+          datetime
+          status
+          notes
+        }
       }
     }
   `;
 
   try {
-    const { data } = await apiClient.post(GRAPHQL_PATH, {
+    const { data } = await axios.post('/graphql', {
       query,
       variables: { patientId: parseInt(patientId, 10) },
     });
@@ -33,10 +33,10 @@ export async function getPatientVisitHistory(patientId: string): Promise<Patient
     const items = data?.data?.consultationHistory ?? [];
 
     return items.map((item: any) => ({
-      appointment_id: item.appointmentId,
-      date: item.date,
-      status: item.status,
-      clinical_notes: item.clinicalNotes ?? null,
+      appointment_id: item.appointment.id,
+      date: item.appointment.datetime,
+      status: item.appointment.status,
+      clinical_notes: item.appointment.notes ?? null,
       prescriptions: [],
     }));
   } catch (e) {

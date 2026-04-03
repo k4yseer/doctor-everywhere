@@ -77,8 +77,12 @@ services:
     ports:
       - "5003:5003"
     env_file: .env
+    environment:
+      - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
       patient-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     volumes:
       - ./seed_scripts:/usr/src/app/seed_scripts

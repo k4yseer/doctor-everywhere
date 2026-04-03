@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { QueueService } from '../domains/appointment/queueService'
 
-type PageState = 'joining' | 'queued' | 'error'
+type PageState = 'joining' | 'queued' | 'called' | 'error'
 
 // HARD CODED PATIENT ID
 const PATIENT_ID = "10000001"
@@ -16,6 +16,7 @@ const queue = ref<{ queue_position: number; waiting_time: number } | null>(null)
 const errorMsg = ref('')
 const refreshing = ref(false)
 const showNoDoctersToast = ref(false)
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 function triggerNoDoctersToast() {
   showNoDoctersToast.value = true
@@ -26,6 +27,7 @@ async function init() {
   try {
     queue.value = await QueueService.joinQueue(PATIENT_ID)
     state.value = 'queued'
+    startPolling()
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.data?.message === 'No doctors available') {
       triggerNoDoctersToast()
@@ -38,24 +40,40 @@ async function init() {
   }
 }
 
+function startPolling() {
+  if (pollTimer) return
+  pollTimer = setInterval(refresh, 5000)
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
 async function refresh() {
   refreshing.value = true
   try {
     const entry = await QueueService.getQueueStatus(PATIENT_ID)
     queue.value = entry
-  } catch {
-    // keep last known state on failure
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) {
+      stopPolling()
+      state.value = 'called'
+    }
   } finally {
     refreshing.value = false
   }
+}
+
+function goToPostConsult() {
+  router.push({ path: '/post-consult', query: { patientId: PATIENT_ID } })
 }
 
 function leaveQueue() {
   router.push('/')
 }
 
-
 onMounted(init)
+onUnmounted(stopPolling)
 </script>
 
 <template>
@@ -124,6 +142,30 @@ onMounted(init)
         </button>
 
         <button class="leave-btn" @click="leaveQueue">Return to dashboard</button>
+      </div>
+
+      <!-- ── Called by doctor ── -->
+      <div v-else-if="state === 'called'" class="state-card">
+        <div class="called-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="36" height="36" style="color: #4ade80">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+        </div>
+
+        <h2 class="state-title">Your doctor is ready!</h2>
+        <p class="state-sub">
+          Check your email for the Zoom meeting link to start your consultation.
+        </p>
+
+        <button class="join-consult-btn" @click="goToPostConsult">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            <polyline points="10 17 15 12 10 7" />
+            <line x1="15" y1="12" x2="3" y2="12" />
+          </svg>
+          View consultation details
+        </button>
       </div>
 
       <!-- ── Error ── -->
@@ -344,6 +386,24 @@ onMounted(init)
   flex-shrink: 0;
   color: #4ade80;
   margin-top: 1px;
+}
+
+/* ── Called ─────────────────────────────────────────────────── */
+.called-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1.5px solid rgba(34, 197, 94, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pop-in 0.4s ease;
+}
+
+@keyframes pop-in {
+  0%   { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1);   opacity: 1; }
 }
 
 /* ── Error ──────────────────────────────────────────────────── */

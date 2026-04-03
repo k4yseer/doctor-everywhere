@@ -59,6 +59,8 @@ const activePatientLabel = computed(() => {
   return `${selected.patient_name} (${selected.patient_id})`
 })
 
+const canProceed = computed(() => Boolean(selectedPatientId.value) && !loadingPatients.value)
+
 async function loadPatients() {
   loadingPatients.value = true
   try {
@@ -70,6 +72,8 @@ async function loadPatients() {
     selectedPatientId.value = hasSaved
       ? String(saved)
       : (patientOptions.value[0] ? String(patientOptions.value[0].patient_id) : '')
+
+    persistSelectedPatient()
   } finally {
     loadingPatients.value = false
   }
@@ -82,6 +86,18 @@ function persistSelectedPatient() {
 
 function toggleProfilePanel() {
   profileOpen.value = !profileOpen.value
+}
+
+function goToQueue() {
+  if (!canProceed.value) return
+  persistSelectedPatient()
+  router.push('/queue')
+}
+
+function goToConsults() {
+  if (!canProceed.value) return
+  persistSelectedPatient()
+  router.push({ path: '/appointments', query: { patientId: selectedPatientId.value } })
 }
 
 onMounted(() => {
@@ -191,13 +207,13 @@ onUnmounted(() => {
           </div>
 
           <div class="hero-actions" style="display: flex; align-items: center;">
-            <button class="join-queue-btn" @click="router.push('/queue')">
+            <button class="join-queue-btn" :disabled="!canProceed" @click="goToQueue">
               Join Queue Now
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
-            <button class="join-queue-btn" @click="router.push({ path: '/appointments', query: { patientId: '10000001' } })" style="margin-left: 1rem;">
+            <button class="join-queue-btn" :disabled="!canProceed" @click="goToConsults" style="margin-left: 1rem;">
               View Consults
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
                 <path d="M9 5l7 7-7 7" />
@@ -453,6 +469,12 @@ onUnmounted(() => {
 
   &:active {
     transform: scale(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
   }
 }
 

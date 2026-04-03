@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
 import { QueueService } from '../domains/appointment/queueService'
 import { AppointmentService } from '../domains/appointment/appointmentService'
 import { patientService } from '../domains/patient/patientService'
@@ -18,13 +17,39 @@ const showNoDoctersToast = ref(false)
 const selectedPatientId = ref('')
 const selectedPatientName = ref('')
 
+type ApiErrorLike = {
+  message?: string
+  response?: {
+    status?: number
+    data?: {
+      message?: string
+    }
+  }
+}
+
+function asApiError(err: unknown): ApiErrorLike | null {
+  if (typeof err === 'object' && err !== null && 'response' in err) {
+    return err as ApiErrorLike
+  }
+  if (err instanceof Error) {
+    return { message: err.message }
+  }
+  return null
+}
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  const apiErr = asApiError(err)
+  return apiErr?.response?.data?.message ?? apiErr?.message ?? fallback
+}
+
 function isDequeuedFromQueue(err: unknown): boolean {
-  if (!axios.isAxiosError(err)) {
+  const apiErr = asApiError(err)
+  if (!apiErr) {
     return false
   }
 
-  const status = err.response?.status
-  const message = String(err.response?.data?.message ?? '').toLowerCase()
+  const status = apiErr.response?.status
+  const message = String(apiErr.response?.data?.message ?? '').toLowerCase()
 
   if (status !== 404) {
     return false
@@ -78,13 +103,11 @@ async function joinQueueForSelectedPatient() {
     queue.value = await QueueService.joinQueue(selectedPatientId.value)
     state.value = 'queued'
   } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.data?.message === 'No doctors available') {
+    if (getErrorMessage(err, '') === 'No doctors available') {
       triggerNoDoctersToast()
     } else {
       state.value = 'error'
-      errorMsg.value = axios.isAxiosError(err)
-        ? (err.response?.data?.message ?? 'Unable to join the queue. Please try again.')
-        : err instanceof Error ? err.message : 'Unable to join the queue. Please try again.'
+      errorMsg.value = getErrorMessage(err, 'Unable to join the queue. Please try again.')
     }
   }
 }
@@ -148,11 +171,10 @@ async function init() {
     await joinQueueForSelectedPatient()
   } catch (err) {
     state.value = 'error'
-    errorMsg.value = axios.isAxiosError(err)
-      ? (err.response?.data?.message ?? 'Unable to resolve active profile. Please choose one on the landing page.')
-      : err instanceof Error
-        ? err.message
-        : 'Unable to resolve active profile. Please choose one on the landing page.'
+    errorMsg.value = getErrorMessage(
+      err,
+      'Unable to resolve active profile. Please choose one on the landing page.',
+    )
   }
 }
 

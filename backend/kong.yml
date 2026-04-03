@@ -27,7 +27,7 @@ services:
     routes:
       - name: get-consultation-history-route
         paths:
-          - /graphql
+          - /api/graphql
         strip_path: false
 
   - name: make-payment 
@@ -35,7 +35,7 @@ services:
     routes: 
       - name: make-payment-route 
         paths: 
-          - /make-payment 
+          - /api/make-payment 
         strip_path: false
 
   - name: make-prescription

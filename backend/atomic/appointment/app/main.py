@@ -134,15 +134,30 @@ def start_amqp_consumer():
             connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
             channel = connection.channel()
             channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
-            result = channel.queue_declare(queue=QUEUE_NAME, durable=True)
-            queue_name = result.method.queue
-            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=PAYMENT_SUCCESS_ROUTING_KEY)
+            channel.queue_declare(
+                queue=QUEUE_NAME,
+                durable=True,
+                arguments={
+                    "x-dead-letter-exchange": EXCHANGE_NAME,
+                    "x-dead-letter-routing-key": f"{QUEUE_NAME}.dlq",
+                }
+            )
+            channel.queue_bind(
+                exchange=EXCHANGE_NAME,
+                queue=QUEUE_NAME,
+                routing_key=PAYMENT_SUCCESS_ROUTING_KEY
+            )
+            channel.queue_declare(
+                queue=f"{QUEUE_NAME}.dlq",
+                durable=True
+            )
             channel.basic_qos(prefetch_count=1)
-            channel.basic_consume(queue=queue_name, on_message_callback=process_payment_success)
+            channel.basic_consume(queue=QUEUE_NAME, on_message_callback=process_payment_success)
             delay = 5
             channel.start_consuming()
         except Exception as err:
             publish_error(
+                source_service=SERVICE_NAME,
                 error_code="APPT-500-AMQP_CONSUMER",
                 error_message=f"AMQP consumer failed: {err}",
                 payload={"service": SERVICE_NAME},

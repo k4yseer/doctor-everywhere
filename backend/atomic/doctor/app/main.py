@@ -157,6 +157,21 @@ def get_all_doctors():
     doctors = db.execute(query).scalars().all()
     return jsonify({"code": 200, "data": [d.json() for d in doctors]}), 200
 
+@app.route("/doctors/<int:doctor_id>", methods=["GET"])
+def get_doctor_by_id(doctor_id):
+    db = get_db()
+
+    doctor = db.get(Doctor, doctor_id)
+
+    if not doctor:
+        return error_response(
+            404,
+            "Doctor not found",
+            "DOC-404-NOT_FOUND",
+            {"doctor_id": doctor_id},
+        )
+
+    return jsonify({"code": 200, "data": doctor.json()}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)

@@ -59,13 +59,6 @@ export interface ConsultationData {
 export interface MakePaymentPayload {
   appointment_id: number;
   patient_id: number;
-  amount: number;
-  currency: string;
-  paymentMethodId: string;
-  patient_address: string;
-  medicine_code: string;
-  reserve_amount: number;
-  phone_number: string;
 }
 
 export interface MakePaymentResponse {
@@ -193,17 +186,44 @@ export const PostConsultService = {
     const query = `
       query ($patientId: Int!) {
         consultationHistory(patientId: $patientId) {
-          appointmentId
-          date
-          status
-          prescriptions {
-            drugName
-            quantity
+          appointment {
+            id
+            consultId
+            datetime
+            status
+            notes
+            doctor {
+              id
+              name
+              specialty
+            }
           }
-          billing {
-            amount
-            paymentStatus
-            deliveryStatus
+          prescription {
+            items {
+              id
+              name
+              quantity
+              dosage
+              frequency
+              duration
+              unit
+              instructions
+            }
+          }
+          invoice {
+            id
+            consultationFee
+            medicineFee
+            total
+            status
+            currency
+          }
+          delivery {
+            id
+            trackingNumber
+            address
+            status
+            estimatedDate
           }
         }
       }
@@ -218,8 +238,31 @@ export const PostConsultService = {
     if (!Array.isArray(rawData)) {
       throw new Error('No consultation history found');
     }
+    console.log(rawData)
 
-    return rawData as ConsultationHistoryItem[];
+    // Map GraphQL response to frontend structure
+    const historyItems: ConsultationHistoryItem[] = rawData.map((r: any) => ({
+      appointmentId: r.appointment.id,
+      date: r.appointment.datetime ? new Date(r.appointment.datetime + 'Z').toISOString() : '',
+      status: r.appointment.status,
+      prescriptions: r.prescription?.items?.map((p: any) => ({
+        drugName: p.name,
+        quantity: p.quantity,
+      })) ?? [],
+      billing: r.invoice
+        ? {
+            amount: r.invoice.total ?? 0,
+            paymentStatus: r.invoice.status ?? 'Pending',
+            deliveryStatus: r.delivery ?? 'Pending',
+          }
+        : {
+            amount: 0,
+            paymentStatus: 'Pending',
+            deliveryStatus: r.delivery ?? 'Pending',
+          },
+    }));
+
+    return historyItems;
   },
 
   async getConsultation(patient_id: number, appointment_id?: number): Promise<ConsultationData> {
@@ -240,11 +283,10 @@ export const PostConsultService = {
     if (!raw) {
       throw new Error(`Appointment ${appointment_id} not found`);
     }
-
     return {
       appointment: {
         id: raw.appointmentId,
-        consult_id: String(raw.appointmentId),
+        consult_id: `CONSULT-${String(raw.appointmentId).padStart(3, '0')}`,
         patient_id,
         doctor: { id: 0, name: 'Unknown', specialty: 'Unknown' },
         datetime: raw.date,

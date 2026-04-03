@@ -40,23 +40,31 @@ onMounted(loadAppointments)
     <div class="bg-ambient" />
 
     <nav class="pc-nav">
-      <button class="back-btn" @click="router.back()">Back</button>
-      <h1 class="page-title">Select an Appointment</h1>
+      <div class="logo" @click="router.push('/')">
+        <img src="/doctor-everywhere-logo.png" alt="Doctor Everywhere" class="logo-img" />
+        <span class="logo-text">doctor everywhere</span>
+      </div>
+      <button class="back-btn" @click="router.back()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <path d="M19 12H5M12 5l-7 7 7 7" />
+        </svg>
+        Back
+      </button>
     </nav>
 
     <main class="pc-main">
       <div class="pc-content">
         <section class="pc-card">
-          <p class="page-intro">Choose the appointment you want to review and pay for.</p>
+          <p class="page-intro">Choose the consult you want to review and pay for.</p>
 
           <div v-if="loading" class="loading-wrap">
-            <p class="loading-text">Loading appointments…</p>
+            <p class="loading-text">Loading consults…</p>
           </div>
 
           <div v-else-if="error" class="error-text">{{ error }}</div>
 
           <div v-else-if="appointments.length === 0" class="empty-text">
-            No appointments found for this patient.
+            No consults found for this patient.
           </div>
 
           <ul v-else class="appointment-list">
@@ -67,8 +75,8 @@ onMounted(loadAppointments)
             >
               <button class="appointment-link" @click="selectAppointment(appointment.appointmentId)">
                 <div class="appointment-row">
-                  <span class="appointment-label">Appointment</span>
-                  <span class="appointment-value">#{{ appointment.appointmentId }}</span>
+                  <span class="appointment-label">Consult</span>
+                  <span class="appointment-value">{{`${String(appointment.appointmentId).padStart(3, '0')}`}}</span>
                 </div>
                 <div class="appointment-row">
                   <span class="appointment-label">Date</span>
@@ -111,33 +119,60 @@ onMounted(loadAppointments)
   inset: 0;
 }
 
+/* ── Navbar ─────────────────────────────────────────────────── */
 .pc-nav {
+  position: sticky;
+  top: 0;
   z-index: 200;
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  background: #111d15d9;
-  border-bottom: 1px solid #ffffff0f;
+  display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 1.25rem 2.5rem;
+  background: rgba(17, 29, 21, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.logo {
   display: flex;
-  position: sticky;
-  top: 0;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.logo-img {
+  height: 34px; width: 34px;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #fff;
+  letter-spacing: -0.01em;
 }
 
 .back-btn {
-  color: #fff9;
-  cursor: pointer;
-  background: #ffffff0f;
-  border: 1px solid #ffffff1a;
-  border-radius: 0.6rem;
+  display: flex;
   align-items: center;
   gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.6rem;
   padding: 0.4rem 0.85rem;
-  font-family: Inter, sans-serif;
+  color: rgba(255, 255, 255, 0.6);
   font-size: 0.82rem;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
   transition: background 0.18s, color 0.18s;
-  display: flex;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
 }
 
 .back-btn:hover {

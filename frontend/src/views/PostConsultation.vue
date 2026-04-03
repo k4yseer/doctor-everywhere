@@ -159,7 +159,7 @@ async function makePayment() {
   const payload: MakePaymentPayload = {
     appointment_id: consultation.value.appointment.id,
     patient_id: consultation.value.appointment.patient_id,
-    amount: Math.round(consultation.value.invoice.total * 100),
+    amount: Math.round(consultation.value.invoice.total),
     currency: consultation.value.invoice.currency.toLowerCase(),
     paymentMethodId: '',
     patient_address,
@@ -242,7 +242,7 @@ function fmt(amount: number) {
               <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
               <line x1="3" y1="10" x2="21" y2="10" />
             </svg>
-            <span class="card-title">Appointment</span>
+            <span class="card-title">Consultation</span>
           </div>
 
           <div class="doctor-row">

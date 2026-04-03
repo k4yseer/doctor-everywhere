@@ -35,7 +35,8 @@ services:
     routes: 
       - name: make-payment-route 
         paths: 
-          - /make-payment 
+          - /make-payment
+          - /api/make-payment
         strip_path: false
 
   - name: make-prescription
@@ -98,6 +99,14 @@ services:
       - name: appointment-route
         paths:
           - /api/appointments
+        strip_path: true
+
+  - name: delivery-atomic-service
+    url: http://delivery-service:5014/deliveries
+    routes:
+      - name: delivery-route
+        paths:
+          - /api/deliveries
         strip_path: true
 
 plugins:

@@ -159,6 +159,9 @@ def next_patient():
             meet_link:
               type: string
               example: "https://zoom.us/j/123456789"
+            start_url:
+              type: string
+              example: "https://zoom.us/s/123456789?zak=abc"
       400:
         description: Missing required field
         schema:

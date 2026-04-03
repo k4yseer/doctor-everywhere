@@ -213,9 +213,6 @@ def get_queue_status(patient_id):
             code:
               type: integer
               example: 200
-            queue_id:
-              type: integer
-              example: 3
             queue_position:
               type: integer
               example: 2

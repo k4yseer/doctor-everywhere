@@ -95,6 +95,26 @@ def get_queue():
     responses:
       200:
         description: List of queue entries ordered by arrival time
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    example: 1
+                  patient_id:
+                    type: string
+                    example: "10000001"
+                  created_at:
+                    type: string
+                    example: "2024-01-01T10:00:00+00:00"
     """
     db = get_db()
     entries = db.query(QueueEntry).order_by(QueueEntry.created_at).all()
@@ -198,8 +218,32 @@ def get_queue_position(patient_id):
     responses:
       200:
         description: Queue position retrieved
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            patient_id:
+              type: string
+              example: "10000001"
+            queue_id:
+              type: integer
+              example: 3
+            queue_position:
+              type: integer
+              example: 2
       404:
         description: Patient not found in queue
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 404
+            message:
+              type: string
+              example: "Patient not found in queue"
     """
     db = get_db()
     entry = db.query(QueueEntry).filter(QueueEntry.patient_id == patient_id).first()
@@ -218,8 +262,26 @@ def dequeue_head():
     responses:
       200:
         description: Head of queue removed
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            patient_id:
+              type: string
+              example: "10000001"
       404:
         description: Queue is empty
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 404
+            message:
+              type: string
+              example: "Queue is empty"
     """
     db = get_db()
     entry = db.query(QueueEntry).order_by(QueueEntry.created_at).first()
@@ -245,8 +307,26 @@ def remove_queue_entry(entry_id):
     responses:
       200:
         description: Queue entry removed
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 200
+            message:
+              type: string
+              example: "Queue entry removed"
       404:
         description: Queue entry not found
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 404
+            message:
+              type: string
+              example: "Queue entry not found"
     """
     db = get_db()
     entry = db.get(QueueEntry, entry_id)

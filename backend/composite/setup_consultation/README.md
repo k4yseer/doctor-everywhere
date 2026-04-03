@@ -1,51 +1,47 @@
 # Setup Consultation — Composite Service
 
-Orchestrates the full consultation setup for a doctor's next patient: optionally marks the previous patient as no-show, dequeues the next patient, creates a Zoom meeting, records the appointment, fetches patient details, and notifies the patient with the meeting link.
+Orchestrates the full consultation setup for a doctor's next patient: dequeues the next patient, creates a Zoom meeting, records the appointment, fetches patient details, and notifies the patient with the meeting link. A separate endpoint handles marking the previous patient as a no-show.
 
 ## Architecture
 
 ```
 Client
   │
-  ▼
-POST /setup-consultation/next-patient
+  ├─► POST /api/setup-consultation/no-show
+  │     │
+  │     ├─► GET /appointments/:id            (Appointment Service :5002)
+  │     ├─► GET /patient/:id/details         (Patient Service :5003)
+  │     ├─► PUT /appointments/:id/status     (Appointment Service :5002)  ← mark NO_SHOW
+  │     └─► AMQP publish notification.no-show        (RabbitMQ → notification_queue)
   │
-  ├─► (optional) GET /appointments/:id          (Appointment Service :5002)
-  ├─► (optional) GET /patient/:id/details       (Patient Service :5003)
-  ├─► (optional) PUT /appointments/:id/status   (Appointment Service :5002)  ← mark NO_SHOW
-  ├─► (optional) AMQP publish notification.no-show        (RabbitMQ → notification_queue)
-  │
-  ├─► DELETE /queue/head                        (Queue Service :5011)
-  │
-  ├─► POST /api/wrapper/zoom/meeting            (Teleconferencing Wrapper :5006)
-  │
-  ├─► POST /appointments                        (Appointment Service :5002)
-  │
-  ├─► GET /patient/:id/details                  (Patient Service :5003)
-  │
-  └─► AMQP publish notification.head-of-queue             (RabbitMQ → notification_queue)
+  └─► POST /api/setup-consultation/next-patient
         │
-        ▼
-    200 { code, patient, appointment_id, meet_link }
+        ├─► DELETE /queue/head                        (Queue Service :5011)
+        ├─► POST /api/wrapper/zoom/meeting            (Teleconferencing Wrapper :5006)
+        ├─► POST /appointments                        (Appointment Service :5002)
+        ├─► GET /patient/:id/details                  (Patient Service :5003)
+        └─► AMQP publish notification.head-of-queue   (RabbitMQ → notification_queue)
+              │
+              ▼
+          200 { code, patient, appointment_id, meet_link, start_url }
 ```
 
 5xx errors are published to RabbitMQ on the `consultation-setup.error` routing key (exchange: `topic_logs`).
 
 ## API
 
-### `POST /setup-consultation/next-patient`
+### `POST /api/setup-consultation/next-patient`
 
 Dequeue the next patient and set up the consultation.
 
 **Request body**
 
-| Field                    | Type    | Required | Description                                          |
-|--------------------------|---------|----------|------------------------------------------------------|
-| `doctor_id`              | integer | yes      | ID of the doctor starting the consultation           |
-| `no_show_appointment_id` | integer | no       | Appointment ID to mark as no-show before dequeuing   |
+| Field       | Type    | Required | Description                              |
+|-------------|---------|----------|------------------------------------------|
+| `doctor_id` | integer | yes      | ID of the doctor starting the consultation |
 
 ```json
-{ "doctor_id": 1, "no_show_appointment_id": 42 }
+{ "doctor_id": 1 }
 ```
 
 **Responses**
@@ -63,11 +59,44 @@ Dequeue the next patient and set up the consultation.
 ```json
 {
   "code": 200,
-  "patient": { "patient_id": "10000001", "name": "Jane Doe", "email": "jane@example.com" },
+  "patient": { "patient_id": "10000001", "patient_name": "Jane Doe", "email": "jane@example.com" },
   "appointment_id": 7,
-  "meet_link": "https://zoom.us/j/123456789"
+  "meet_link": "https://zoom.us/j/123456789",
+  "start_url": "https://zoom.us/s/123456789?zak=abc"
 }
 ```
+
+---
+
+### `POST /api/setup-consultation/no-show`
+
+Mark an existing appointment as a no-show and notify the patient via RabbitMQ.
+
+**Request body**
+
+| Field            | Type    | Required | Description                              |
+|------------------|---------|----------|------------------------------------------|
+| `appointment_id` | integer | yes      | ID of the appointment to mark as no-show |
+
+```json
+{ "appointment_id": 42 }
+```
+
+**Responses**
+
+| Status | Description                                       |
+|--------|---------------------------------------------------|
+| 200    | Appointment marked as no-show                     |
+| 400    | `appointment_id` missing                          |
+| 503    | Upstream appointment or patient service unreachable |
+
+**200 response body**
+
+```json
+{ "code": 200, "message": "Appointment 42 marked as no-show" }
+```
+
+---
 
 Interactive Swagger docs are available at `http://localhost:5012/apidocs`.
 

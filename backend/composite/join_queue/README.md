@@ -8,7 +8,7 @@ Orchestrates a patient joining the walk-in consultation queue. It checks doctor 
 Client
   │
   ▼
-POST /join-queue
+POST /api/join-queue
   │
   ├─► GET /doctors?status=AVAILABLE       (Doctor Service :5001)
   │
@@ -16,26 +16,26 @@ POST /join-queue
         │
         ├─ 201 ──► 201 { queue_id, queue_position, waiting_time, status }
         │
-        └─ 409 ──► GET /queue/position/{patient_id}   (Queue Service :5011)
+        └─ 200 (already queued) ──► GET /queue/position/{patient_id}   (Queue Service :5011)
                      │
                      ▼
                    200 { queue_id, queue_position, waiting_time, status }
 
-GET /join-queue/status/<patient_id>
+GET /api/join-queue/status/<patient_id>
   │
   ├─► GET /doctors?status=AVAILABLE       (Doctor Service :5001)
   │
   └─► GET /queue/position/{patient_id}   (Queue Service :5011)
         │
         ▼
-      200 { queue_id, queue_position, waiting_time, status }
+      200 { queue_position, waiting_time, status }
 ```
 
 5xx errors are published to RabbitMQ on the `join-queue.error` routing key (exchange: `topic_logs`).
 
 ## API
 
-### `POST /join-queue`
+### `POST /api/join-queue`
 
 Add a patient to the consultation queue.
 
@@ -86,7 +86,7 @@ Add a patient to the consultation queue.
 
 ---
 
-### `GET /join-queue/status/<patient_id>`
+### `GET /api/join-queue/status/<patient_id>`
 
 Get a patient's current queue position and estimated wait time.
 
@@ -109,7 +109,6 @@ Get a patient's current queue position and estimated wait time.
 ```json
 {
   "code": 200,
-  "queue_id": 3,
   "queue_position": 2,
   "waiting_time": 10,
   "status": "QUEUED"

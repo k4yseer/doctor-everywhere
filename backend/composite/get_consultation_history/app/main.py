@@ -23,6 +23,7 @@ APPOINTMENT_URL = os.environ.get("appointmentURL", "http://appointment-service:5
 INVOICE_URL = os.environ.get("invoiceURL", "http://invoice-service:5008")
 DELIVERY_URL = os.environ.get("deliveryURL", "http://delivery-service:5014")
 DOCTOR_URL = os.environ.get("doctorURL", "http://doctor-service:5001")
+INVENTORY_URL = os.environ.get("inventoryURL", "http://inventory-service:5009")
 PRESCRIPTION_URL = os.environ.get(
     "prescriptionURL",
     "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI",
@@ -98,54 +99,59 @@ async def _extract_prescription_block_async(client, appointment_id):
     mc = _default_mc()
     prescriptions = []
 
-    # Required endpoint from spec.
+    # Try OutSystems for MC data
     res = await _safe_get_async(client, f"{PRESCRIPTION_URL}/GetPrescription", params={"AppointmentId": appointment_id})
-    if not res or res.status_code == 404:
-        return mc, prescriptions
-    if res.status_code >= 400:
-        return mc, prescriptions
+    if res and res.status_code < 400:
+        try:
+            payload = _extract_data(res.json())
+        except ValueError:
+            payload = None
 
-    try:
-        payload = _extract_data(res.json())
-    except ValueError:
-        return mc, prescriptions
+        if payload:
+            rows = payload if isinstance(payload, list) else [payload]
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                has_mc = row.get("has_mc") or row.get("hasMC")
+                if has_mc is None and (row.get("mc_start_date") or row.get("mcStartDate")):
+                    has_mc = True
+                if has_mc is not None:
+                    mc["has_mc"] = bool(has_mc)
+                mc_start = row.get("start_date") or row.get("mc_start_date") or row.get("mcStartDate")
+                if mc_start:
+                    mc["start_date"] = mc_start
+                duration = row.get("duration_days") or row.get("mc_duration_days") or row.get("mcDurationDays")
+                if duration is not None:
+                    try:
+                        mc["duration_days"] = int(duration)
+                    except (TypeError, ValueError):
+                        pass
 
-    rows = payload if isinstance(payload, list) else [payload]
+    # Use inventory reservations as the source for medicine items
+    res = await _safe_get_async(client, f"{INVENTORY_URL}/inventory/reservations/appointment/{appointment_id}")
+    if res and res.status_code < 400:
+        try:
+            reservations = res.json()
+            if not isinstance(reservations, list):
+                reservations = []
+        except ValueError:
+            reservations = []
 
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-
-        # Common MC key patterns for varied upstream payloads.
-        has_mc = row.get("has_mc")
-        if has_mc is None:
-            has_mc = row.get("hasMC")
-        if has_mc is None and (row.get("mc_start_date") or row.get("mcStartDate")):
-            has_mc = True
-
-        if has_mc is not None:
-            mc["has_mc"] = bool(has_mc)
-
-        mc_start = row.get("start_date") or row.get("mc_start_date") or row.get("mcStartDate")
-        if mc_start:
-            mc["start_date"] = mc_start
-
-        duration = row.get("duration_days") or row.get("mc_duration_days") or row.get("mcDurationDays")
-        if duration is not None:
-            try:
-                mc["duration_days"] = int(duration)
-            except (TypeError, ValueError):
-                pass
-
-        drug_name = row.get("drug_name") or row.get("drugName") or row.get("medicine_name") or row.get("name")
-        quantity = row.get("quantity") or row.get("qty")
-
-        if drug_name:
-            try:
-                qty_val = int(quantity) if quantity is not None else 0
-            except (TypeError, ValueError):
-                qty_val = 0
-            prescriptions.append({"drug_name": str(drug_name), "quantity": qty_val})
+        for rv in reservations:
+            if not isinstance(rv, dict):
+                continue
+            code = rv.get("medicine_code", "")
+            qty = rv.get("amount", 0)
+            name = code
+            med_res = await _safe_get_async(client, f"{INVENTORY_URL}/inventory/{code}")
+            if med_res and med_res.status_code < 400:
+                try:
+                    med_data = _extract_data(med_res.json())
+                    if isinstance(med_data, dict):
+                        name = med_data.get("medicine_name", code)
+                except ValueError:
+                    pass
+            prescriptions.append({"drug_name": name, "quantity": qty})
 
     return mc, prescriptions
 

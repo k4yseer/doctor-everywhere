@@ -7,7 +7,7 @@ import { QueueService } from '../domains/appointment/queueService'
 type PageState = 'joining' | 'queued' | 'error'
 
 // HARD CODED PATIENT ID
-const PATIENT_ID = "10000001"
+const PATIENT_ID = 1
 
 const router = useRouter()
 

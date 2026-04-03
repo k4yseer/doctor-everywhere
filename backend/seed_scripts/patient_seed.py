@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from sqlalchemy import Column, ForeignKey, String, create_engine, delete
+from sqlalchemy import Column, ForeignKey, String, create_engine, delete, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Paths and DB URL
@@ -29,7 +29,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 class Patient(Base):
     __tablename__ = "patients"
 
-    patient_id = Column(String(8), primary_key=True)
+    patient_id = Column(Integer, primary_key=True)
     patient_name = Column(String(64), nullable=False)
     address = Column(String(64), nullable=False)
     contact_number = Column(String(8), nullable=False)

@@ -246,12 +246,15 @@ export const PostConsultService = {
       appointmentId: r.appointment.id,
       date: r.appointment.datetime ? new Date(r.appointment.datetime + 'Z').toISOString() : '',
       status: r.appointment.status,
+      doctor: r.appointment.doctor,
       prescriptions: r.prescription?.items?.map((p: any) => ({
         drugName: p.name,
         quantity: p.quantity,
       })) ?? [],
       billing: r.invoice
         ? {
+            medicine_fee: r.invoice.medicineFee ?? 0,
+            consultation_fee: r.invoice.consultationFee ?? 0,
             amount: r.invoice.total ?? 0,
             paymentStatus: r.invoice.status ?? 'Pending',
             deliveryStatus: r.delivery ?? 'Pending',
@@ -339,7 +342,15 @@ export const PostConsultService = {
           instructions: p.instructions ?? '',
         })),
       },
-      invoice: r.invoice
+      invoice: {
+        id: r.appointmentId,
+        consultation_fee: r.billing?.consultation_fee ?? 0,
+        medicine_fee: r.billing?.medicine_fee ?? 0,
+        total: r.billing?.amount ?? 0,
+        status: r.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
+        currency: 'SGD',
+      },
+      delivery: r.billing?.deliveryStatus
         ? {
             id: r.invoice.id ?? r.appointment.id,
             consultation_fee: r.invoice.consultationFee ?? 0,

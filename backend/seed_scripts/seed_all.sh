@@ -1,30 +1,8 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+# Run from the backend/ directory: bash seed_scripts/seed_all.sh
 
-# Run all seed scripts inside their respective Docker containers.
-# The containers already have the correct dbURL env vars and Python packages.
-# Usage: bash seed_scripts/seed_all.sh   (from the backend/ directory)
+set -e
 
-COMPOSE_PREFIX="backend"
-SEED_DIR="/usr/src/app/seed_scripts"
+python seed_scripts/doctor_seed.py && python seed_scripts/patient_seed.py && python seed_scripts/inventory_seed.py && python seed_scripts/appointment_seed.py && python seed_scripts/invoice_seed.py && python seed_scripts/delivery_seed.py
 
-echo "=== Seeding Doctor DB ==="
-docker exec "${COMPOSE_PREFIX}-doctor-service-1" python "${SEED_DIR}/doctor_seed.py"
-
-echo "=== Seeding Appointment DB ==="
-docker exec "${COMPOSE_PREFIX}-appointment-service-1" python "${SEED_DIR}/appointment_seed.py"
-
-echo "=== Seeding Patient DB ==="
-docker exec "${COMPOSE_PREFIX}-patient-service-1" python "${SEED_DIR}/patient_seed.py"
-
-echo "=== Seeding Invoice DB ==="
-docker exec "${COMPOSE_PREFIX}-invoice-service-1" python "${SEED_DIR}/invoice_seed.py"
-
-echo "=== Seeding Inventory DB ==="
-docker exec "${COMPOSE_PREFIX}-inventory-service-1" python "${SEED_DIR}/inventory_seed.py"
-
-echo "=== Seeding Delivery DB ==="
-docker exec "${COMPOSE_PREFIX}-delivery-service-1" python "${SEED_DIR}/delivery_seed.py"
-
-echo ""
-echo "All databases seeded successfully!"
+echo "All seed scripts completed."

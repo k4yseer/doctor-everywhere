@@ -3,11 +3,9 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { QueueService } from '../domains/appointment/queueService'
+import { patientService } from '../domains/patient/patientService'
 
 type PageState = 'joining' | 'queued' | 'called' | 'error'
-
-// HARD CODED PATIENT ID
-const PATIENT_ID = "10000001"
 
 const router = useRouter()
 
@@ -17,15 +15,19 @@ const errorMsg = ref('')
 const refreshing = ref(false)
 const showNoDoctersToast = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
+const selectedPatientId = ref('')
+const selectedPatientName = ref('')
 
 function triggerNoDoctersToast() {
   showNoDoctersToast.value = true
   setTimeout(() => router.push('/'), 3000)
 }
 
-async function init() {
+async function joinQueueForSelectedPatient() {
+  state.value = 'joining'
+
   try {
-    queue.value = await QueueService.joinQueue(PATIENT_ID)
+    queue.value = await QueueService.joinQueue(selectedPatientId.value)
     state.value = 'queued'
     startPolling()
   } catch (err) {
@@ -52,7 +54,7 @@ function stopPolling() {
 async function refresh() {
   refreshing.value = true
   try {
-    const entry = await QueueService.getQueueStatus(PATIENT_ID)
+    const entry = await QueueService.getQueueStatus(selectedPatientId.value)
     queue.value = entry
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.status === 404) {
@@ -65,7 +67,37 @@ async function refresh() {
 }
 
 function goToPostConsult() {
-  router.push({ path: '/post-consult', query: { patientId: PATIENT_ID } })
+  router.push({ path: '/post-consult', query: { patientId: selectedPatientId.value } })
+}
+async function init() {
+  try {
+    const saved = localStorage.getItem('demoPatientId')
+
+    if (saved) {
+      const details = await patientService.getById(saved)
+      const payload = details?.data
+      selectedPatientId.value = String(payload?.patient_id ?? saved)
+      selectedPatientName.value = String(payload?.patient_name ?? `Patient ${saved}`)
+    } else {
+      const listing = await patientService.getAll()
+      const first = listing?.data?.[0]
+      if (!first) {
+        throw new Error('No patients available. Please set a profile on the landing page.')
+      }
+      selectedPatientId.value = String(first.patient_id)
+      selectedPatientName.value = String(first.patient_name)
+      localStorage.setItem('demoPatientId', selectedPatientId.value)
+    }
+
+    await joinQueueForSelectedPatient()
+  } catch (err) {
+    state.value = 'error'
+    errorMsg.value = axios.isAxiosError(err)
+      ? (err.response?.data?.message ?? 'Unable to resolve active profile. Please choose one on the landing page.')
+      : err instanceof Error
+        ? err.message
+        : 'Unable to resolve active profile. Please choose one on the landing page.'
+  }
 }
 
 function leaveQueue() {
@@ -112,6 +144,7 @@ onUnmounted(stopPolling)
         </div>
 
         <h2 class="state-title">You're in the queue</h2>
+        <p class="state-sub">Active patient: {{ selectedPatientName }} ({{ selectedPatientId }})</p>
         <p class="state-sub">
           Estimated wait: ~{{ queue!.waiting_time }} min
         </p>

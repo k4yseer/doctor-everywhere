@@ -188,6 +188,37 @@ def find_by_id(patient_id):
                           {"patient_id": patient_id})
 
 
+@app.route("/patients", methods=['GET'])
+def get_all_patients():
+    """
+    Get all patients.
+    ---
+    responses:
+      200:
+        description: List of patients
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            data:
+              type: array
+              items:
+                type: object
+      404:
+        description: No patients found
+    """
+    patients = get_db().scalars(select(Patient).order_by(Patient.patient_id)).all()
+
+    if not patients:
+        return error_response(404, "No patients found.", "PATIENT-404-NOT_FOUND")
+
+    return jsonify({
+        "code": 200,
+        "data": [patient.json() for patient in patients],
+    })
+
+
 @app.route("/patients/<string:patient_id>/allergies", methods=['GET'])
 def get_patient_allergies(patient_id):
     """

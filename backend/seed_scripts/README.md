@@ -4,8 +4,8 @@ Populates all databases with sample data from `common_seed.json`.
 
 ## Prerequisites
 
-- Python 3 with `sqlalchemy`, `pymysql`, and `mysql-connector-python` installed
-- MySQL running with the databases already created (`doctor_db`, `patient_db`, `inventory_db`, `appointment_db`, `invoice_db`, `delivery_db`)
+- Docker containers must be running (`docker compose up -d`)
+- No local Python dependencies needed — scripts run inside the service containers
 
 ## Usage
 
@@ -15,7 +15,7 @@ Run from the `backend/` directory:
 bash seed_scripts/seed_all.sh
 ```
 
-This runs all scripts in dependency order:
+This uses `docker compose exec` to run each script inside its service container (which already has the correct Python packages and `dbURL` env var). Scripts run in dependency order:
 
 | Order | Script | Database | Depends on |
 |-------|--------|----------|------------|
@@ -26,20 +26,6 @@ This runs all scripts in dependency order:
 | 5 | `invoice_seed.py` | `invoice_db` | appointments |
 | 6 | `delivery_seed.py` | `delivery_db` | appointments |
 
-## Custom DB Connection
-
-Each script defaults to `root:root@localhost:3306`. Override with the `dbURL` environment variable:
-
-```bash
-dbURL="mysql+pymysql://user:password@host:3306/doctor_db" python seed_scripts/doctor_seed.py
-```
-
-Or set it for the entire run:
-
-```bash
-export DB_SERVER=localhost DB_PORT=3306 DB_USER=root DB_PASSWORD=root
-bash seed_scripts/seed_all.sh
-```
 
 ## Seed Data
 

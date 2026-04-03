@@ -3,9 +3,10 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { QueueService } from '../domains/appointment/queueService'
+import { AppointmentService } from '../domains/appointment/appointmentService'
 import { patientService } from '../domains/patient/patientService'
 
-type PageState = 'joining' | 'queued' | 'error'
+type PageState = 'joining' | 'queued' | 'called' | 'no_show' | 'error'
 
 const router = useRouter()
 
@@ -16,6 +17,54 @@ const refreshing = ref(false)
 const showNoDoctersToast = ref(false)
 const selectedPatientId = ref('')
 const selectedPatientName = ref('')
+
+function isDequeuedFromQueue(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) {
+    return false
+  }
+
+  const status = err.response?.status
+  const message = String(err.response?.data?.message ?? '').toLowerCase()
+
+  if (status !== 404) {
+    return false
+  }
+
+  // Avoid false positives on generic gateway 404s.
+  return message.includes('queue') || message.includes('patient') || message.includes('not found')
+}
+
+async function getLatestAppointmentStatus(patientId: string): Promise<string | null> {
+  const numericId = Number(patientId)
+  if (!Number.isFinite(numericId)) {
+    return null
+  }
+
+  try {
+    const appointments = await AppointmentService.getAppointmentsByPatient(numericId)
+    if (!appointments.length) {
+      return null
+    }
+
+    const latest = [...appointments].sort((a, b) =>
+      new Date(b.slot_datetime).getTime() - new Date(a.slot_datetime).getTime(),
+    )[0]
+
+    return latest?.status ?? null
+  } catch {
+    return null
+  }
+}
+
+function mapStatusToPostQueueState(status: string | null): 'called' | 'no_show' | null {
+  if (status === 'CONFIRMED') {
+    return 'called'
+  }
+  if (status === 'NO_SHOW') {
+    return 'no_show'
+  }
+  return null
+}
 
 function triggerNoDoctersToast() {
   showNoDoctersToast.value = true
@@ -45,8 +94,32 @@ async function refresh() {
   try {
     const entry = await QueueService.getQueueStatus(selectedPatientId.value)
     queue.value = entry
-  } catch {
-    // keep last known state on failure
+    if (state.value !== 'called') {
+      state.value = 'queued'
+    }
+  } catch (err) {
+    if (isDequeuedFromQueue(err)) {
+      const latestStatus = await getLatestAppointmentStatus(selectedPatientId.value)
+      const postQueueState = mapStatusToPostQueueState(latestStatus)
+
+      if (postQueueState) {
+        state.value = postQueueState
+        if (postQueueState === 'no_show') {
+          queue.value = null
+        }
+        return
+      }
+
+      if (state.value === 'called') {
+        // Keep called sticky if status has not moved to NO_SHOW yet.
+      } else {
+        state.value = 'error'
+        errorMsg.value = 'Queue status changed, but appointment state is not ready yet. Please return home and check again.'
+      }
+      return
+    }
+
+    // keep last known state on transient failure
   } finally {
     refreshing.value = false
   }
@@ -157,6 +230,41 @@ onMounted(init)
         </button>
 
         <button class="leave-btn" @click="leaveQueue">Return to dashboard</button>
+      </div>
+
+      <!-- ── Called ── -->
+      <div v-else-if="state === 'called'" class="state-card">
+        <div class="called-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="36" height="36" style="color: #4ade80">
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        </div>
+        <h2 class="state-title">You have been called</h2>
+        <p class="state-sub">Please check your email for the consultation link.</p>
+        <p v-if="queue" class="state-sub">Last known queue position: #{{ queue.queue_position }}</p>
+        <button class="refresh-btn" @click="refresh" :disabled="refreshing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          {{ refreshing ? 'Refreshing…' : 'Refresh status' }}
+        </button>
+        <button class="join-consult-btn" @click="router.push('/')">Go back home</button>
+      </div>
+
+      <!-- ── No-show ── -->
+      <div v-else-if="state === 'no_show'" class="state-card">
+        <div class="error-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="36" height="36" style="color: #f87171">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        </div>
+        <h2 class="state-title">You have been marked as no-show</h2>
+        <p class="state-sub error-msg">Your appointment was marked as no-show by the doctor. Please book again if needed.</p>
+        <button class="join-consult-btn" @click="router.push('/')">Go back home</button>
       </div>
 
       <!-- ── Error ── -->
@@ -386,6 +494,17 @@ onMounted(init)
   border-radius: 50%;
   background: rgba(248, 113, 113, 0.08);
   border: 1.5px solid rgba(248, 113, 113, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.called-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(74, 222, 128, 0.08);
+  border: 1.5px solid rgba(74, 222, 128, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;

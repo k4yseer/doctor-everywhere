@@ -26,7 +26,7 @@ CURRENCY = os.environ.get("CURRENCY", "SGD")
 
 # ─── AMQP Config ───────────────────────────────────────────────────────────────
 AMQP_URL      = os.environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
-EXCHANGE_NAME = "topic_logs"
+EXCHANGE_NAME = "notifications"
 
 
 # ─── AMQP Helpers ──────────────────────────────────────────────────────────────
@@ -289,17 +289,38 @@ def make_prescription():
         print(f"[MAKE PRESCRIPTION] Failed to update appointment status: {e}")
 
     # ── Step 10: Publish PRESCRIPTION_MADE for Resend notification ─────────────
-    publish_message(
-        routing_key="prescription.made",
-        message={
-            "patient_id":      patient_id,
-            "appointment_id":  appointment_id,
-            "medicines":       [{"name": m.get("medicine_name"), "quantity": m.get("dispense_quantity")} for m in medicines],
-            "mc_start_date":   mc_start_date,
-            "mc_duration_days": mc_duration_days,
-            "prescription_ids": [p.get("prescription_id") for p in out_prescriptions]
-        }
-    )
+    if mc_start_date and mc_duration_days:
+        try:     
+            patient_resp = requests.get(f"{PATIENT_SERVICE_URL}/patients/{patient_id}/details", timeout=5)
+            patient_email = patient_resp.json().get("data", {}).get("email", "")
+            
+            from fpdf import FPDF
+            import base64
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", size=12)
+            pdf.cell(200, 10, txt=f"Medical Certificate", ln=True, align="C")
+            pdf.cell(200, 10, txt=f"Appointment ID: {appointment_id}", ln=True)
+            pdf.cell(200, 10, txt=f"Patient ID: {patient_id}", ln=True)
+            pdf.cell(200, 10, txt=f"MC Start Date: {mc_start_date}", ln=True)
+            pdf.cell(200, 10, txt=f"MC Duration: {mc_duration_days} days", ln=True)
+            pdf_bytes = pdf.output()
+            mc_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+            
+            publish_message(
+                routing_key="notification.mc",
+                message={
+                    "type": "send-mc",
+                    "email": patient_email,
+                    "appointment_id": appointment_id,
+                    "mc_start_date":   mc_start_date,
+                    "filename": f"MC_{appointment_id}.pdf",
+                    "file_content": mc_base64
+                }
+            )
+        except Exception as e:
+            _publish_error("notification_service", "NOTIF-500", str(e), data)
+            print(f"[MAKE PRESCRIPTION] Failed to publish MC notification: {e}")
 
     try:
         invoice_resp = requests.post(

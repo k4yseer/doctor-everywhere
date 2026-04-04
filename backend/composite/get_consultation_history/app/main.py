@@ -23,6 +23,8 @@ APPOINTMENT_URL = os.environ.get("appointmentURL", "http://appointment-service:5
 INVOICE_URL = os.environ.get("invoiceURL", "http://invoice-service:5008")
 DELIVERY_URL = os.environ.get("deliveryURL", "http://delivery-service:5014")
 DOCTOR_URL = os.environ.get("doctorURL", "http://doctor-service:5001")
+PATIENT_URL = os.environ.get("patientURL", "http://patient-service:5003")
+INVENTORY_URL = os.environ.get("inventoryURL", "http://inventory-service:5009")
 PRESCRIPTION_URL = os.environ.get(
     "prescriptionURL",
     "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI",
@@ -360,8 +362,23 @@ async def _extract_delivery_status_async(client, appointment_id, patient_id, inv
 
     return None
 
+
+async def _fetch_patient_details_async(client, patient_id):
+    res = await _safe_get_async(client, f"{PATIENT_URL}/patient/{patient_id}/details")
+    if not res or res.status_code >= 400:
+        return None
+
+    try:
+        payload = _extract_data(res.json())
+    except ValueError:
+        return None
+
+    if isinstance(payload, dict):
+        return payload
+    return None
+
 semaphore = asyncio.Semaphore(10)
-async def _build_bundle(client, appt, patient_id, doctor_cache):
+async def _build_bundle(client, appt, patient_id, doctor_cache, patient_info):
     async with semaphore:
         raw_id = appt.get("appointment_id", appt.get("id"))
         if raw_id is None:
@@ -427,19 +444,31 @@ async def _build_bundle(client, appt, patient_id, doctor_cache):
 
         invoice_obj = None
         if invoice_id:
-            invoice_obj = {
-                "id": invoice_id,
-                "consultation_fee": invoice_data["consultation_fee"],
-                "medicine_fee": invoice_data["medicine_fee"],
-                "total": invoice_data["amount"],
-                "status": invoice_data["payment_status"],
-            }
+            invoice_obj = Invoice(
+                id=invoice_id,
+                consultation_fee=invoice_data["consultation_fee"],
+                medicine_fee=invoice_data["medicine_fee"],
+                total=invoice_data["amount"],
+                status=invoice_data["payment_status"],
+                currency="SGD"
+            )
+
+        delivery_obj = None
+        if delivery_status:
+            delivery_obj = Delivery(
+                id=str(delivery_status.get("id")) if delivery_status.get("id") else None,
+                tracking_number=delivery_status.get("tracking_number"),
+                address=delivery_status.get("address"),
+                status=delivery_status.get("status"),
+                estimated_date=None
+            )
 
         return ConsultationData(
             appointment=appointment_obj,
             prescription=prescription_obj,
             invoice=invoice_obj,
-            delivery=delivery_status,
+            delivery=delivery_obj,
+            patient=patient_info
         )
 
 
@@ -546,11 +575,20 @@ class Delivery:
     estimated_date: Optional[str]
 
 @strawberry.type
+class PatientDetails:
+    patient_id: Optional[int]
+    patient_name: Optional[str]
+    address: Optional[str]
+    contact_number: Optional[str]
+    email: Optional[str]
+
+@strawberry.type
 class ConsultationData:
     appointment: ConsultAppointment
-    prescription: Prescription
+    prescription: Optional[Prescription]
     invoice: Optional[Invoice]
     delivery: Optional[Delivery]
+    patient: Optional[PatientDetails]
 
 @strawberry.type
 class Query:
@@ -570,89 +608,33 @@ class Query:
 
             appointments_list = appointments_data if isinstance(appointments_data, list) else [appointments_data]
 
+            # Fetch patient details once and reuse for every consultation record
+            patient_payload = await _fetch_patient_details_async(client, patientId)
+            patient_info = None
+            if isinstance(patient_payload, dict):
+                patient_info = PatientDetails(
+                    patient_id=patient_payload.get("patient_id"),
+                    patient_name=patient_payload.get("patient_name"),
+                    address=patient_payload.get("address"),
+                    contact_number=patient_payload.get("contact_number"),
+                    email=patient_payload.get("email"),
+                )
+
             # Doctor cache to prevent repeated calls
             doctor_cache = {}
 
             # Build bundles concurrently with a semaphore
             tasks = [
-                _build_bundle(client, appt, patientId, doctor_cache)
+                _build_bundle(client, appt, patientId, doctor_cache, patient_info)
                 for appt in appointments_list
             ]
             bundles = await asyncio.gather(*tasks)
 
             # Filter out any None results
             valid_bundles = [b for b in bundles if b is not None]
+            valid_bundles.sort(key=lambda b: b.appointment.datetime or "", reverse=True)
 
-            # Convert to GraphQL types
-            graphql_results = []
-            for b in valid_bundles:
-                appointment_obj = ConsultAppointment(
-                    id=b.appointment.id,
-                    consult_id=b.appointment.consult_id,
-                    patient_id=b.appointment.patient_id,
-                    doctor=ConsultDoctor(
-                        id=b.appointment.doctor.id,
-                        name=b.appointment.doctor.name,
-                        specialty=b.appointment.doctor.specialty
-                    ),
-                    datetime=b.appointment.datetime,
-                    notes=b.appointment.notes,
-                    status=b.appointment.status
-                )
-
-                prescription_items = [
-                    PrescriptionItem(
-                        id=item.id,
-                        medicine_code=getattr(item, "medicine_code", None),
-                        medicine_name=item.medicine_name,
-                        quantity=item.quantity,
-                        dosage=getattr(item, "dosage", None),
-                        frequency=getattr(item, "frequency", None),
-                        duration=getattr(item, "duration", None),
-                        unit=getattr(item, "unit", None),
-                        instructions=getattr(item, "instructions", None),
-                        unit_price=getattr(item, "unit_price", None),
-                        line_total=getattr(item, "line_total", None),
-                    )
-                    for item in (b.prescription.items if b.prescription else [])
-                ]
-
-                prescription_obj = Prescription(
-                    id=b.prescription.id if b.prescription else b.appointment.id,
-                    items=prescription_items
-                )
-
-                invoice_obj = None
-                if b.invoice:
-                    invoice_obj = Invoice(
-                        id=b.invoice["id"],
-                        consultation_fee=b.invoice["consultation_fee"],
-                        medicine_fee=b.invoice["medicine_fee"],
-                        total=b.invoice["total"],
-                        status=b.invoice["status"],
-                        currency="SGD"
-                    )
-
-                delivery_obj = None
-                if b.delivery:
-                    delivery_obj = Delivery(
-                        id=b.delivery.get("id"),
-                        tracking_number=b.delivery.get("tracking_number"),
-                        address=b.delivery.get("address"),
-                        status=b.delivery.get("status"),
-                        estimated_date=None
-                    )
-
-                graphql_results.append(
-                    ConsultationData(
-                        appointment=appointment_obj,
-                        prescription=prescription_obj,
-                        invoice=invoice_obj,
-                        delivery=delivery_obj
-                    )
-                )
-
-            return graphql_results
+            return valid_bundles
 
 
 

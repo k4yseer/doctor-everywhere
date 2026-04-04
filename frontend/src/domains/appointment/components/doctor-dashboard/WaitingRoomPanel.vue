@@ -57,7 +57,14 @@ function formatTime(dateStr: string): string {
               <span class="patient-id-sub">ID: {{ patient.patient_id }}</span>
             </div>
             <div class="joined-badge">
-              <span class="joined-time">Joined {{ formatTime(patient.created_at) }}</span>
+              <span class="joined-time">
+                Joined {{ new Date(patient.created_at + 'Z').toLocaleString('en-SG', {
+                                timeZone: 'Asia/Singapore',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: true
+              }) }}
+              </span>
             </div>
           </div>
         </div>

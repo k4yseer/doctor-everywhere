@@ -363,7 +363,6 @@ services:
       - appointmentURL=http://appointment-service:5002
       - invoiceURL=http://invoice-service:5008
       - deliveryURL=http://delivery-service:5014
-      - inventoryURL=http://inventory-service:5009
       - prescriptionURL=https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI
       - AMQP_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:

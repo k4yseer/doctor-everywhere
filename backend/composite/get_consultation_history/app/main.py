@@ -23,7 +23,6 @@ APPOINTMENT_URL = os.environ.get("appointmentURL", "http://appointment-service:5
 INVOICE_URL = os.environ.get("invoiceURL", "http://invoice-service:5008")
 DELIVERY_URL = os.environ.get("deliveryURL", "http://delivery-service:5014")
 DOCTOR_URL = os.environ.get("doctorURL", "http://doctor-service:5001")
-INVENTORY_URL = os.environ.get("inventoryURL", "http://inventory-service:5009")
 PRESCRIPTION_URL = os.environ.get(
     "prescriptionURL",
     "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI",
@@ -138,11 +137,13 @@ async def _extract_prescription_block_async(client, appointment_id):
             except (TypeError, ValueError):
                 pass
 
-        medicine_code = row.get("medicine_code") or row.get("drug_code")
-        if medicine_code and str(medicine_code).upper() == "MC":
+        medicine_code = row.get("medicine_code")
+        if not medicine_code:
+            continue
+        if str(medicine_code).upper() == "MC":
             continue
 
-        drug_name = row.get("drug_name") or row.get("drugName") or row.get("medicine_name") or row.get("name")
+        medicine_name = row.get("medicine_name")
         quantity = row.get("dispense_quantity")
         if quantity is None:
             quantity = row.get("dispenseQuantity")
@@ -183,14 +184,14 @@ async def _extract_prescription_block_async(client, appointment_id):
             except (TypeError, ValueError):
                 line_total = None
 
-        if not drug_name and medicine_code:
-            drug_name = str(medicine_code)
+        if not medicine_name:
+            medicine_name = str(medicine_code)
 
-        if drug_name:
+        if medicine_name:
             normalized_rows.append(
                 {
-                    "medicine_code": str(medicine_code) if medicine_code else None,
-                    "drug_name": str(drug_name),
+                    "medicine_code": str(medicine_code),
+                    "medicine_name": str(medicine_name),
                     "quantity": qty_val,
                     "dosage": dosage,
                     "instructions": extra_instructions,
@@ -202,7 +203,7 @@ async def _extract_prescription_block_async(client, appointment_id):
     # Consolidate duplicate rows (same medicine + same dosage) into one line item.
     aggregated = {}
     for row in normalized_rows:
-        key = (row.get("medicine_code") or row.get("drug_name"), row.get("dosage") or "")
+        key = (row.get("medicine_code"), row.get("dosage") or "")
         if key not in aggregated:
             aggregated[key] = dict(row)
         else:
@@ -222,31 +223,21 @@ async def _extract_prescription_block_async(client, appointment_id):
 
     for row in aggregated.values():
         medicine_code = row.get("medicine_code")
-        drug_name = row.get("drug_name")
+        medicine_name = row.get("medicine_name")
         qty_val = int(row.get("quantity") or 0)
         dosage = row.get("dosage")
         extra_instructions = row.get("instructions")
         unit_price = row.get("unit_price")
         line_total = row.get("line_total")
 
-        # Optional name enrichment only; pricing should come from prescription snapshot.
-        if medicine_code and (not drug_name or str(drug_name) == str(medicine_code)):
-            med_res = await _safe_get_async(client, f"{INVENTORY_URL}/inventory/{medicine_code}")
-            if med_res and med_res.status_code < 400:
-                try:
-                    med_data = _extract_data(med_res.json())
-                    if isinstance(med_data, dict):
-                        drug_name = med_data.get("medicine_name") or str(medicine_code)
-                except (ValueError, TypeError):
-                    pass
+        if not medicine_name and medicine_code:
+            medicine_name = str(medicine_code)
 
-        if not drug_name and medicine_code:
-            drug_name = str(medicine_code)
-
-        if drug_name:
+        if medicine_name:
             prescriptions.append(
                 {
-                    "drug_name": str(drug_name),
+                    "medicine_code": str(medicine_code) if medicine_code else None,
+                    "medicine_name": str(medicine_name),
                     "quantity": qty_val,
                     "dosage": dosage,
                     "instructions": extra_instructions,
@@ -418,7 +409,8 @@ async def _build_bundle(client, appt, patient_id, doctor_cache):
                 items=[
                     PrescriptionItem(
                         id=i + 1,
-                        name=item["drug_name"],
+                        medicine_code=item.get("medicine_code"),
+                        medicine_name=item["medicine_name"],
                         dosage=item.get("dosage"),
                         unit=item.get("unit"),
                         instructions=item.get("instructions"),
@@ -520,7 +512,8 @@ class ConsultAppointment:
 @strawberry.type
 class PrescriptionItem:
     id: int
-    name: str
+    medicine_name: str
+    medicine_code: Optional[str] = None
     dosage: Optional[str] = None
     frequency: Optional[str] = None
     duration: Optional[str] = None
@@ -610,7 +603,8 @@ class Query:
                 prescription_items = [
                     PrescriptionItem(
                         id=item.id,
-                        name=item.name,
+                        medicine_code=getattr(item, "medicine_code", None),
+                        medicine_name=item.medicine_name,
                         quantity=item.quantity,
                         dosage=getattr(item, "dosage", None),
                         frequency=getattr(item, "frequency", None),

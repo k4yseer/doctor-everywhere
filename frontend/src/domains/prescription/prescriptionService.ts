@@ -5,7 +5,7 @@ import apiClient from '@/core/apiClient';
 
 export interface PrescriptionDrug {
   medicine_code: string;
-  medication_name: string;
+  medicine_name: string;
   dosage_instructions: string;
   dispense_quantity: number;
 }

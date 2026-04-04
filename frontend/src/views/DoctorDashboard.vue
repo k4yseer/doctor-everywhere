@@ -4,7 +4,7 @@ import apiClient from "@/core/apiClient";
 import ConsultationHubPanel from "@/domains/appointment/components/doctor-dashboard/ConsultationHubPanel.vue";
 import PatientFilePanel from "@/domains/appointment/components/doctor-dashboard/PatientFilePanel.vue";
 import WaitingRoomPanel from "@/domains/appointment/components/doctor-dashboard/WaitingRoomPanel.vue";
-import type { DrugItem, MedicalCertificateDraft, QueuePatient, ActivePatient, ConsultationStatus, Medicine } from "@/domains/appointment/components/doctor-dashboard/types";
+import type { MedicineItem, MedicalCertificateDraft, QueuePatient, ActivePatient, ConsultationStatus, Medicine } from "@/domains/appointment/components/doctor-dashboard/types";
 import { QueueService } from "@/domains/appointment/queueService";
 import { patientService } from "@/domains/patient/patientService";
 import { getPatientVisitHistory } from "@/domains/appointment/consultationHistoryService";
@@ -19,7 +19,7 @@ const DOCTOR_ID = 1;
 const queuePatients = ref<QueuePatient[]>([]);
 const activePatient = ref<ActivePatient | null>(null);
 const consultationNotes = ref("");
-const prescribedDrugs = ref<DrugItem[]>([]);
+const prescribedMedicines = ref<MedicineItem[]>([]);
 const sessionStartedAt = ref("");
 const consultationStatus = ref<ConsultationStatus>("idle");
 const medicines = ref<Medicine[]>([]);
@@ -154,7 +154,10 @@ async function callNextPatient() {
       getPatientVisitHistory(pid),
     ]).then(([allergies, rawHistory]) => {
       if (!activePatient.value || activePatient.value.patient_id !== pid) return; // stale or cleared
-      const history = rawHistory.sort((a, b) => {
+      const currentAppointmentId = Number(activePatient.value.appointment_id);
+      const history = rawHistory
+      .filter((item) => Number(item.appointment_id) !== currentAppointmentId)
+      .sort((a, b) => {
         if (!a.date) return 1;
         if (!b.date) return -1;
         return new Date(b.date).getTime() - new Date(a.date).getTime();
@@ -211,11 +214,11 @@ async function submitConsultation() {
       appointment_id: p.appointment_id,
       patient_id: p.patient_id,
       consultation_notes: consultationNotes.value,
-      medicines: prescribedDrugs.value.map(d => ({
-        medicine_code: d.medicine_code,
-        medication_name: d.medication_name,
-        dosage_instructions: d.instruction || "",
-        dispense_quantity: d.dispense_quantity || 1,
+      medicines: prescribedMedicines.value.map(m => ({
+        medicine_code: m.medicine_code,
+        medicine_name: m.medicine_name,
+        dosage_instructions: m.instruction || "",
+        dispense_quantity: m.dispense_quantity || 1,
       })),
       mc_start_date: mcDraft.value.diagnosisSummary.trim() ? mcDraft.value.startDate : null,
       mc_duration_days: mcDraft.value.diagnosisSummary.trim() ? mcDraft.value.leaveDays : null,
@@ -250,28 +253,28 @@ function closeSession() {
 
 function resetSessionState() {
   consultationNotes.value = "";
-  prescribedDrugs.value = [];
+  prescribedMedicines.value = [];
   sessionStartedAt.value = "";
   mcDraft.value = { leaveDays: 1, diagnosisSummary: "", startDate: new Date().toISOString().slice(0, 10) };
   consultationStatus.value = "idle";
 }
 
-// ── Drug Management ─────────────────────────────────────────────
+// ── Medicine Management ─────────────────────────────────────────
 
-function addDrug(drug: { name: string; drugCode: string }) {
-  prescribedDrugs.value.push({ id: Date.now(), medicine_code: drug.drugCode, medication_name: drug.name, instruction: "", dispense_quantity: 1 });
+function addMedicine(medicine: { name: string; medicineCode: string }) {
+  prescribedMedicines.value.push({ id: Date.now(), medicine_code: medicine.medicineCode, medicine_name: medicine.name, instruction: "", dispense_quantity: 1 });
 }
 
-function removeDrug(drugId: number) {
-  prescribedDrugs.value = prescribedDrugs.value.filter(d => d.id !== drugId);
+function removeMedicine(medicineId: number) {
+  prescribedMedicines.value = prescribedMedicines.value.filter(m => m.id !== medicineId);
 }
 
-function updateDrugInstruction({ id, value }: { id: number; value: string }) {
-  prescribedDrugs.value = prescribedDrugs.value.map(d => d.id === id ? { ...d, instruction: value } : d);
+function updateMedicineInstruction({ id, value }: { id: number; value: string }) {
+  prescribedMedicines.value = prescribedMedicines.value.map(m => m.id === id ? { ...m, instruction: value } : m);
 }
 
-function updateDrugQuantity({ id, value }: { id: number; value: number }) {
-  prescribedDrugs.value = prescribedDrugs.value.map(d => d.id === id ? { ...d, dispense_quantity: value } : d);
+function updateMedicineQuantity({ id, value }: { id: number; value: number }) {
+  prescribedMedicines.value = prescribedMedicines.value.map(m => m.id === id ? { ...m, dispense_quantity: value } : m);
 }
 
 function updateMedicalCertificateDraft(payload: MedicalCertificateDraft) {
@@ -310,7 +313,7 @@ function updateMedicalCertificateDraft(payload: MedicalCertificateDraft) {
             :active-patient="activePatient"
             :notes="consultationNotes"
             :empty-state-message="emptyStateMessage"
-            :issued-drug-count="prescribedDrugs.length"
+            :issued-medicine-count="prescribedMedicines.length"
             :issued-mc-count="issuedMcCount"
             :session-started-at="sessionStartedAt || 'Not started'"
             :consultation-status="consultationStatus"
@@ -325,13 +328,13 @@ function updateMedicalCertificateDraft(payload: MedicalCertificateDraft) {
         <section class="dd-patient">
           <PatientFilePanel
             :active-patient="activePatient"
-            :prescribed-drugs="prescribedDrugs"
+            :prescribed-medicines="prescribedMedicines"
             :empty-state-message="emptyStateMessage"
             :medicines="medicines"
-            @add-drug="addDrug"
-            @remove-drug="removeDrug"
-            @update-instruction="updateDrugInstruction"
-            @update-quantity="updateDrugQuantity"
+            @add-medicine="addMedicine"
+            @remove-medicine="removeMedicine"
+            @update-instruction="updateMedicineInstruction"
+            @update-quantity="updateMedicineQuantity"
             @update-mc="updateMedicalCertificateDraft"
           />
         </section>
@@ -357,8 +360,8 @@ function updateMedicalCertificateDraft(payload: MedicalCertificateDraft) {
                 </div>
                 <div class="summary-item">
                   <span>Prescriptions</span>
-                  <span :class="prescribedDrugs.length > 0 ? 'status-ok' : 'status-pending'">
-                    {{ prescribedDrugs.length }} medicine(s)
+                  <span :class="prescribedMedicines.length > 0 ? 'status-ok' : 'status-pending'">
+                    {{ prescribedMedicines.length }} medicine(s)
                   </span>
                 </div>
                 <div class="summary-item">

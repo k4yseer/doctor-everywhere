@@ -154,7 +154,7 @@ export interface ConsultationHistoryItem {
   appointmentId: number;
   date: string;
   status: string;
-  prescriptions?: Array<{ drugName: string; quantity: number }>;
+  prescriptions?: Array<{ medicineName: string; quantity: number }>;
   billing?: {
     amount?: number;
     paymentStatus?: string;
@@ -168,7 +168,7 @@ function buildMockHistory(): ConsultationHistoryItem[] {
       appointmentId: 1,
       date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       status: 'PENDING_PAYMENT',
-      prescriptions: [{ drugName: 'Paracetamol', quantity: 20 }],
+      prescriptions: [{ medicineName: 'Paracetamol', quantity: 20 }],
       billing: {
         amount: 78.5,
         paymentStatus: 'Pending Payment',
@@ -179,7 +179,7 @@ function buildMockHistory(): ConsultationHistoryItem[] {
       appointmentId: 2,
       date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
       status: 'PAID',
-      prescriptions: [{ drugName: 'Amoxicillin', quantity: 21 }],
+      prescriptions: [{ medicineName: 'Amoxicillin', quantity: 21 }],
       billing: {
         amount: 120,
         paymentStatus: 'Paid',
@@ -214,7 +214,8 @@ export const PostConsultService = {
           prescription {
             items {
               id
-              name
+              medicineCode
+              medicineName
               quantity
               dosage
               frequency
@@ -261,7 +262,7 @@ export const PostConsultService = {
       status: r.appointment.status,
       doctor: r.appointment.doctor,
       prescriptions: r.prescription?.items?.map((p: any) => ({
-        drugName: p.name,
+        medicineName: p.medicineName,
         quantity: p.quantity,
       })) ?? [],
       billing: r.invoice
@@ -303,7 +304,7 @@ export const PostConsultService = {
           }
           prescription {
             id
-            items { id name dosage frequency duration quantity unit instructions lineTotal }
+            items { id medicineCode medicineName dosage frequency duration quantity unit instructions lineTotal }
           }
           invoice {
             id consultationFee medicineFee total status currency
@@ -351,7 +352,7 @@ export const PostConsultService = {
         id: r.prescription?.id ?? 0,
         items: (r.prescription?.items ?? []).map((p: any) => ({
           id: p.id,
-          name: p.name ?? '',
+          name: p.medicineName ?? '',
           dosage: p.dosage ?? p.dosageInstructions ?? p.dosage_instructions ?? '',
           frequency: p.frequency ?? '',
           duration: p.duration ?? '',

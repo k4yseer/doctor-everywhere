@@ -30,10 +30,10 @@ export interface ActivePatient {
   join_url: string | null;
 }
 
-export interface DrugItem {
+export interface MedicineItem {
   id: number;
   medicine_code: string;
-  medication_name: string;
+  medicine_name: string;
   instruction: string;
   dispense_quantity: number;
 }

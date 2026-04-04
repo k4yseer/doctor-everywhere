@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import { patientService, type Patient } from '../domains/patient/patientService'
+import { usePatientSessionStore } from '@/stores/patientSessionStore'
 
 const router = useRouter()
 const profileOpen = ref(false)
-const loadingPatients = ref(false)
-const patientOptions = ref<Patient[]>([])
 const selectedPatientId = ref('')
+const patientSessionStore = usePatientSessionStore()
+const { patients: patientOptions, selectedPatient, isLoading: loadingPatients } = storeToRefs(patientSessionStore)
 
 const tags = ['Instant Access', 'No Appointments', 'Telehealth']
 
@@ -54,34 +55,15 @@ function pillStyle(pill: Pill) {
 }
 
 const activePatientLabel = computed(() => {
-  const selected = patientOptions.value.find((p) => String(p.patient_id) === selectedPatientId.value)
-  if (!selected) return 'No patient selected'
-  return `${selected.patient_name} (${selected.patient_id})`
+  if (!selectedPatient.value) return 'No patient selected'
+  return `${selectedPatient.value.patient_name} (${selectedPatient.value.patient_id})`
 })
 
-const canProceed = computed(() => Boolean(selectedPatientId.value) && !loadingPatients.value)
+const canProceed = computed(() => Boolean(selectedPatient.value) && !loadingPatients.value)
 
-async function loadPatients() {
-  loadingPatients.value = true
-  try {
-    const response = await patientService.getAll()
-    patientOptions.value = response?.data ?? []
-
-    const saved = localStorage.getItem('demoPatientId')
-    const hasSaved = saved && patientOptions.value.some((p) => String(p.patient_id) === saved)
-    selectedPatientId.value = hasSaved
-      ? String(saved)
-      : (patientOptions.value[0] ? String(patientOptions.value[0].patient_id) : '')
-
-    persistSelectedPatient()
-  } finally {
-    loadingPatients.value = false
-  }
-}
-
-function persistSelectedPatient() {
+async function onPatientSelectionChange() {
   if (!selectedPatientId.value) return
-  localStorage.setItem('demoPatientId', selectedPatientId.value)
+  await patientSessionStore.selectPatientById(selectedPatientId.value)
 }
 
 function toggleProfilePanel() {
@@ -90,19 +72,25 @@ function toggleProfilePanel() {
 
 function goToQueue() {
   if (!canProceed.value) return
-  persistSelectedPatient()
   router.push('/queue')
 }
 
 function goToConsults() {
   if (!canProceed.value) return
-  persistSelectedPatient()
   router.push({ path: '/appointments', query: { patientId: selectedPatientId.value } })
 }
 
+watch(
+  selectedPatient,
+  (patient) => {
+    selectedPatientId.value = patient ? String(patient.patient_id) : ''
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   document.documentElement.classList.add('p-dark')
-  loadPatients()
+  patientSessionStore.initialize()
 })
 onUnmounted(() => {
   document.documentElement.classList.remove('p-dark')
@@ -138,7 +126,7 @@ onUnmounted(() => {
           v-model="selectedPatientId"
           class="profile-select"
           :disabled="loadingPatients || patientOptions.length === 0"
-          @change="persistSelectedPatient"
+          @change="onPatientSelectionChange"
         >
           <option v-for="patient in patientOptions" :key="patient.patient_id" :value="String(patient.patient_id)">
             {{ patient.patient_name }} ({{ patient.patient_id }})

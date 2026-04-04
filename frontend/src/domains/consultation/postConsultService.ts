@@ -50,11 +50,20 @@ export interface Delivery {
   estimated_date: string;
 }
 
+export interface PatientDetails {
+  patient_id: number;
+  patient_name: string;
+  address: string;
+  contact_number: string;
+  email: string;
+}
+
 export interface ConsultationData {
   appointment: ConsultAppointment;
   prescription: Prescription;
   invoice: Invoice;
   delivery: Delivery | null;
+  patient?: PatientDetails;
 }
 
 export interface MakePaymentPayload {
@@ -64,9 +73,8 @@ export interface MakePaymentPayload {
   currency: string;
   paymentMethodId: string;
   patient_address: string;
-  medicine_code: string;
   reserve_amount: number;
-  phone_number: string;
+  email: string;
 }
 
 export interface MakePaymentResponse {
@@ -154,7 +162,8 @@ export interface ConsultationHistoryItem {
   appointmentId: number;
   date: string;
   status: string;
-  prescriptions?: Array<{ medicineName: string; quantity: number }>;
+  patient?: PatientDetails;
+  prescriptions?: Array<{ drugName: string; quantity: number }>;
   billing?: {
     amount?: number;
     paymentStatus?: string;
@@ -168,7 +177,7 @@ function buildMockHistory(): ConsultationHistoryItem[] {
       appointmentId: 1,
       date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       status: 'PENDING_PAYMENT',
-      prescriptions: [{ medicineName: 'Paracetamol', quantity: 20 }],
+      prescriptions: [{ drugName: 'Paracetamol', quantity: 20 }],
       billing: {
         amount: 78.5,
         paymentStatus: 'Pending Payment',
@@ -179,7 +188,7 @@ function buildMockHistory(): ConsultationHistoryItem[] {
       appointmentId: 2,
       date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
       status: 'PAID',
-      prescriptions: [{ medicineName: 'Amoxicillin', quantity: 21 }],
+      prescriptions: [{ drugName: 'Amoxicillin', quantity: 21 }],
       billing: {
         amount: 120,
         paymentStatus: 'Paid',
@@ -210,6 +219,13 @@ export const PostConsultService = {
               name
               specialty
             }
+          }
+          patient {
+            patientId
+            patientName
+            address
+            contactNumber
+            email
           }
           prescription {
             items {
@@ -244,7 +260,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await apiClient.post('/graphql', {
+    const { data } = await apiClient.post('/api/graphql', {
       query,
       variables: { patientId: patient_id },
     });
@@ -260,6 +276,15 @@ export const PostConsultService = {
       appointmentId: r.appointment.id,
       date: r.appointment.datetime ? new Date(r.appointment.datetime + 'Z').toISOString() : '',
       status: r.appointment.status,
+      patient: r.patient
+        ? {
+            patient_id: r.patient.patientId,
+            patient_name: r.patient.patientName,
+            address: r.patient.address,
+            contact_number: r.patient.contactNumber,
+            email: r.patient.email,
+          }
+        : undefined,
       doctor: r.appointment.doctor,
       prescriptions: r.prescription?.items?.map((p: any) => ({
         medicineName: p.medicineName,
@@ -302,6 +327,13 @@ export const PostConsultService = {
             notes
             status
           }
+          patient {
+            patientId
+            patientName
+            address
+            contactNumber
+            email
+          }
           prescription {
             id
             items { id medicineCode medicineName dosage frequency duration quantity unit instructions lineTotal }
@@ -316,7 +348,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await apiClient.post('/graphql', {
+    const { data } = await apiClient.post('/api/graphql', {
       query,
       variables: { patientId: patient_id },
     });
@@ -348,6 +380,15 @@ export const PostConsultService = {
         notes: r.appointment.notes ?? '',
         status: r.appointment.status,
       },
+      patient: r.patient
+        ? {
+            patient_id: r.patient.patientId,
+            patient_name: r.patient.patientName,
+            address: r.patient.address ?? '',
+            contact_number: r.patient.contactNumber ?? '',
+            email: r.patient.email ?? '',
+          }
+        : undefined,
       prescription: {
         id: r.prescription?.id ?? 0,
         items: (r.prescription?.items ?? []).map((p: any) => ({

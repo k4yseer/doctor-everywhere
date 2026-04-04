@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
 import { QueueService } from '../domains/appointment/queueService'
+import { AppointmentService } from '../domains/appointment/appointmentService'
+import { patientService } from '../domains/patient/patientService'
 
-type PageState = 'joining' | 'queued' | 'error'
-
-// HARD CODED PATIENT ID
-const PATIENT_ID = "10000001"
+type PageState = 'joining' | 'queued' | 'called' | 'no_show' | 'error'
 
 const router = useRouter()
 
@@ -16,24 +14,100 @@ const queue = ref<{ queue_position: number; waiting_time: number } | null>(null)
 const errorMsg = ref('')
 const refreshing = ref(false)
 const showNoDoctersToast = ref(false)
+const selectedPatientId = ref('')
+const selectedPatientName = ref('')
+
+type ApiErrorLike = {
+  message?: string
+  response?: {
+    status?: number
+    data?: {
+      message?: string
+    }
+  }
+}
+
+function asApiError(err: unknown): ApiErrorLike | null {
+  if (typeof err === 'object' && err !== null && 'response' in err) {
+    return err as ApiErrorLike
+  }
+  if (err instanceof Error) {
+    return { message: err.message }
+  }
+  return null
+}
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  const apiErr = asApiError(err)
+  return apiErr?.response?.data?.message ?? apiErr?.message ?? fallback
+}
+
+function isDequeuedFromQueue(err: unknown): boolean {
+  const apiErr = asApiError(err)
+  if (!apiErr) {
+    return false
+  }
+
+  const status = apiErr.response?.status
+  const message = String(apiErr.response?.data?.message ?? '').toLowerCase()
+
+  if (status !== 404) {
+    return false
+  }
+
+  // Avoid false positives on generic gateway 404s.
+  return message.includes('queue') || message.includes('patient') || message.includes('not found')
+}
+
+async function getLatestAppointmentStatus(patientId: string): Promise<string | null> {
+  const numericId = Number(patientId)
+  if (!Number.isFinite(numericId)) {
+    return null
+  }
+
+  try {
+    const appointments = await AppointmentService.getAppointmentsByPatient(numericId)
+    if (!appointments.length) {
+      return null
+    }
+
+    const latest = [...appointments].sort((a, b) =>
+      new Date(b.slot_datetime).getTime() - new Date(a.slot_datetime).getTime(),
+    )[0]
+
+    return latest?.status ?? null
+  } catch {
+    return null
+  }
+}
+
+function mapStatusToPostQueueState(status: string | null): 'called' | 'no_show' | null {
+  if (status === 'CONFIRMED') {
+    return 'called'
+  }
+  if (status === 'NO_SHOW') {
+    return 'no_show'
+  }
+  return null
+}
 
 function triggerNoDoctersToast() {
   showNoDoctersToast.value = true
   setTimeout(() => router.push('/'), 3000)
 }
 
-async function init() {
+async function joinQueueForSelectedPatient() {
+  state.value = 'joining'
+
   try {
-    queue.value = await QueueService.joinQueue(PATIENT_ID)
+    queue.value = await QueueService.joinQueue(selectedPatientId.value)
     state.value = 'queued'
   } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.data?.message === 'No doctors available') {
+    if (getErrorMessage(err, '') === 'No doctors available') {
       triggerNoDoctersToast()
     } else {
       state.value = 'error'
-      errorMsg.value = axios.isAxiosError(err)
-        ? (err.response?.data?.message ?? 'Unable to join the queue. Please try again.')
-        : err instanceof Error ? err.message : 'Unable to join the queue. Please try again.'
+      errorMsg.value = getErrorMessage(err, 'Unable to join the queue. Please try again.')
     }
   }
 }
@@ -41,19 +115,67 @@ async function init() {
 async function refresh() {
   refreshing.value = true
   try {
-    const entry = await QueueService.getQueueStatus(PATIENT_ID)
+    const entry = await QueueService.getQueueStatus(selectedPatientId.value)
     queue.value = entry
-  } catch {
-    // keep last known state on failure
+    if (state.value !== 'called') {
+      state.value = 'queued'
+    }
+  } catch (err) {
+    if (isDequeuedFromQueue(err)) {
+      const latestStatus = await getLatestAppointmentStatus(selectedPatientId.value)
+      const postQueueState = mapStatusToPostQueueState(latestStatus)
+
+      if (postQueueState === 'no_show') {
+        state.value = 'no_show'
+        queue.value = null
+        return
+      }
+
+      // If queue no longer has this patient, treat it as called by default.
+      // Appointment status can still later move to NO_SHOW on a subsequent refresh.
+      state.value = 'called'
+      return
+    }
+
+    // keep last known state on transient failure
   } finally {
     refreshing.value = false
+  }
+}
+
+async function init() {
+  try {
+    const saved = localStorage.getItem('demoPatientId')
+
+    if (saved) {
+      const details = await patientService.getById(saved)
+      const payload = details?.data
+      selectedPatientId.value = String(payload?.patient_id ?? saved)
+      selectedPatientName.value = String(payload?.patient_name ?? `Patient ${saved}`)
+    } else {
+      const listing = await patientService.getAll()
+      const first = listing?.data?.[0]
+      if (!first) {
+        throw new Error('No patients available. Please set a profile on the landing page.')
+      }
+      selectedPatientId.value = String(first.patient_id)
+      selectedPatientName.value = String(first.patient_name)
+      localStorage.setItem('demoPatientId', selectedPatientId.value)
+    }
+
+    await joinQueueForSelectedPatient()
+  } catch (err) {
+    state.value = 'error'
+    errorMsg.value = getErrorMessage(
+      err,
+      'Unable to resolve active profile. Please choose one on the landing page.',
+    )
   }
 }
 
 function leaveQueue() {
   router.push('/')
 }
-
 
 onMounted(init)
 </script>
@@ -94,6 +216,7 @@ onMounted(init)
         </div>
 
         <h2 class="state-title">You're in the queue</h2>
+        <p class="state-sub">Active patient: {{ selectedPatientName }} ({{ selectedPatientId }})</p>
         <p class="state-sub">
           Estimated wait: ~{{ queue!.waiting_time }} min
         </p>
@@ -124,6 +247,41 @@ onMounted(init)
         </button>
 
         <button class="leave-btn" @click="leaveQueue">Return to dashboard</button>
+      </div>
+
+      <!-- ── Called ── -->
+      <div v-else-if="state === 'called'" class="state-card">
+        <div class="called-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="36" height="36" style="color: #4ade80">
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        </div>
+        <h2 class="state-title">You have been called</h2>
+        <p class="state-sub">Please check your email for the consultation link.</p>
+        <p v-if="queue" class="state-sub">Last known queue position: #{{ queue.queue_position }}</p>
+        <button class="refresh-btn" @click="refresh" :disabled="refreshing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          {{ refreshing ? 'Refreshing…' : 'Refresh status' }}
+        </button>
+        <button class="join-consult-btn" @click="router.push('/')">Go back home</button>
+      </div>
+
+      <!-- ── No-show ── -->
+      <div v-else-if="state === 'no_show'" class="state-card">
+        <div class="error-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="36" height="36" style="color: #f87171">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        </div>
+        <h2 class="state-title">You have been marked as no-show</h2>
+        <p class="state-sub error-msg">Your appointment was marked as no-show by the doctor. Please book again if needed.</p>
+        <button class="join-consult-btn" @click="router.push('/')">Go back home</button>
       </div>
 
       <!-- ── Error ── -->
@@ -353,6 +511,17 @@ onMounted(init)
   border-radius: 50%;
   background: rgba(248, 113, 113, 0.08);
   border: 1.5px solid rgba(248, 113, 113, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.called-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(74, 222, 128, 0.08);
+  border: 1.5px solid rgba(74, 222, 128, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -46,7 +46,7 @@ Add a patient to the consultation queue.
 | `patient_id` | string | yes      | Patient identifier |
 
 ```json
-{ "patient_id": "10000001" }
+{ "patient_id": 1 }
 ```
 
 **Responses**

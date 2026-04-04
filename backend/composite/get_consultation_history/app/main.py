@@ -23,6 +23,8 @@ APPOINTMENT_URL = os.environ.get("appointmentURL", "http://appointment-service:5
 INVOICE_URL = os.environ.get("invoiceURL", "http://invoice-service:5008")
 DELIVERY_URL = os.environ.get("deliveryURL", "http://delivery-service:5014")
 DOCTOR_URL = os.environ.get("doctorURL", "http://doctor-service:5001")
+PATIENT_URL = os.environ.get("patientURL", "http://patient-service:5003")
+INVENTORY_URL = os.environ.get("inventoryURL", "http://inventory-service:5009")
 PRESCRIPTION_URL = os.environ.get(
     "prescriptionURL",
     "https://personal-pehihv0m.outsystemscloud.com/ESDPrescriptionService/rest/PrescriptionAPI",
@@ -97,7 +99,7 @@ def _default_billing():
 async def _extract_prescription_block_async(client, appointment_id):
     mc = _default_mc()
     prescriptions = []
-
+    normalized_rows = []
     # Required endpoint from spec.
     res = await _safe_get_async(client, f"{PRESCRIPTION_URL}/GetPrescription", params={"AppointmentId": appointment_id})
     if not res or res.status_code == 404:
@@ -137,15 +139,115 @@ async def _extract_prescription_block_async(client, appointment_id):
             except (TypeError, ValueError):
                 pass
 
-        drug_name = row.get("drug_name") or row.get("drugName") or row.get("medicine_name") or row.get("name")
-        quantity = row.get("quantity") or row.get("qty")
+        medicine_code = row.get("medicine_code")
+        if not medicine_code:
+            continue
+        if str(medicine_code).upper() == "MC":
+            continue
 
-        if drug_name:
+        medicine_name = row.get("medicine_name")
+        quantity = row.get("dispense_quantity")
+        if quantity is None:
+            quantity = row.get("dispenseQuantity")
+        if quantity is None:
+            quantity = row.get("quantity")
+        if quantity is None:
+            quantity = row.get("qty")
+
+        try:
+            qty_val = int(quantity) if quantity is not None else 0
+        except (TypeError, ValueError):
+            qty_val = 0
+
+        dosage = row.get("dosage_instructions") or row.get("dosageInstructions")
+        extra_instructions = row.get("instructions")
+
+        raw_unit_price = row.get("unit_price")
+        if raw_unit_price is None:
+            raw_unit_price = row.get("unitPrice")
+        unit_price = None
+        if raw_unit_price is not None:
             try:
-                qty_val = int(quantity) if quantity is not None else 0
+                unit_price = float(raw_unit_price)
             except (TypeError, ValueError):
-                qty_val = 0
-            prescriptions.append({"drug_name": str(drug_name), "quantity": qty_val})
+                unit_price = None
+
+        raw_total_price = row.get("total_price")
+        if raw_total_price is None:
+            raw_total_price = row.get("totalPrice")
+        if raw_total_price is None:
+            raw_total_price = row.get("line_total")
+        if raw_total_price is None:
+            raw_total_price = row.get("lineTotal")
+        line_total = None
+        if raw_total_price is not None:
+            try:
+                line_total = float(raw_total_price)
+            except (TypeError, ValueError):
+                line_total = None
+
+        if not medicine_name:
+            medicine_name = str(medicine_code)
+
+        if medicine_name:
+            normalized_rows.append(
+                {
+                    "medicine_code": str(medicine_code),
+                    "medicine_name": str(medicine_name),
+                    "quantity": qty_val,
+                    "dosage": dosage,
+                    "instructions": extra_instructions,
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                }
+            )
+
+    # Consolidate duplicate rows (same medicine + same dosage) into one line item.
+    aggregated = {}
+    for row in normalized_rows:
+        key = (row.get("medicine_code"), row.get("dosage") or "")
+        if key not in aggregated:
+            aggregated[key] = dict(row)
+        else:
+            aggregated[key]["quantity"] = int(aggregated[key].get("quantity") or 0) + int(row.get("quantity") or 0)
+            existing_total = aggregated[key].get("line_total")
+            incoming_total = row.get("line_total")
+            if existing_total is not None and incoming_total is not None:
+                aggregated[key]["line_total"] = float(existing_total) + float(incoming_total)
+            elif existing_total is None:
+                aggregated[key]["line_total"] = incoming_total
+
+            if aggregated[key].get("unit_price") is None and row.get("unit_price") is not None:
+                aggregated[key]["unit_price"] = row.get("unit_price")
+
+            if not aggregated[key].get("instructions") and row.get("instructions"):
+                aggregated[key]["instructions"] = row.get("instructions")
+
+    for row in aggregated.values():
+        medicine_code = row.get("medicine_code")
+        medicine_name = row.get("medicine_name")
+        qty_val = int(row.get("quantity") or 0)
+        dosage = row.get("dosage")
+        extra_instructions = row.get("instructions")
+        unit_price = row.get("unit_price")
+        line_total = row.get("line_total")
+
+        if not medicine_name and medicine_code:
+            medicine_name = str(medicine_code)
+
+        if medicine_name:
+            prescriptions.append(
+                {
+                    "medicine_code": str(medicine_code) if medicine_code else None,
+                    "medicine_name": str(medicine_name),
+                    "quantity": qty_val,
+                    "dosage": dosage,
+                    "instructions": extra_instructions,
+                    "unit": "unit(s)",
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                }
+            )
 
     return mc, prescriptions
 
@@ -260,8 +362,23 @@ async def _extract_delivery_status_async(client, appointment_id, patient_id, inv
 
     return None
 
+
+async def _fetch_patient_details_async(client, patient_id):
+    res = await _safe_get_async(client, f"{PATIENT_URL}/patient/{patient_id}/details")
+    if not res or res.status_code >= 400:
+        return None
+
+    try:
+        payload = _extract_data(res.json())
+    except ValueError:
+        return None
+
+    if isinstance(payload, dict):
+        return payload
+    return None
+
 semaphore = asyncio.Semaphore(10)
-async def _build_bundle(client, appt, patient_id, doctor_cache):
+async def _build_bundle(client, appt, patient_id, doctor_cache, patient_info):
     async with semaphore:
         raw_id = appt.get("appointment_id", appt.get("id"))
         if raw_id is None:
@@ -299,7 +416,7 @@ async def _build_bundle(client, appt, patient_id, doctor_cache):
             patient_id=patient_id,
             doctor=doctor_obj,
             datetime=appt.get("date") or appt.get("slot_datetime"),
-            notes=appt.get("clinical_notes"),
+            notes=appt.get("clinical_notes") or "No doctor notes recorded for this consultation.",
             status=_friendly_status(appt.get("status")),
         )
 
@@ -309,8 +426,14 @@ async def _build_bundle(client, appt, patient_id, doctor_cache):
                 items=[
                     PrescriptionItem(
                         id=i + 1,
-                        name=item["drug_name"],
+                        medicine_code=item.get("medicine_code"),
+                        medicine_name=item["medicine_name"],
+                        dosage=item.get("dosage"),
+                        unit=item.get("unit"),
+                        instructions=item.get("instructions"),
                         quantity=item["quantity"],
+                        unit_price=item.get("unit_price"),
+                        line_total=item.get("line_total"),
                     )
                     for i, item in enumerate(prescriptions)
                 ],
@@ -321,19 +444,31 @@ async def _build_bundle(client, appt, patient_id, doctor_cache):
 
         invoice_obj = None
         if invoice_id:
-            invoice_obj = {
-                "id": invoice_id,
-                "consultation_fee": invoice_data["consultation_fee"],
-                "medicine_fee": invoice_data["medicine_fee"],
-                "total": invoice_data["amount"],
-                "status": invoice_data["payment_status"],
-            }
+            invoice_obj = Invoice(
+                id=invoice_id,
+                consultation_fee=invoice_data["consultation_fee"],
+                medicine_fee=invoice_data["medicine_fee"],
+                total=invoice_data["amount"],
+                status=invoice_data["payment_status"],
+                currency="SGD"
+            )
+
+        delivery_obj = None
+        if delivery_status:
+            delivery_obj = Delivery(
+                id=str(delivery_status.get("id")) if delivery_status.get("id") else None,
+                tracking_number=delivery_status.get("tracking_number"),
+                address=delivery_status.get("address"),
+                status=delivery_status.get("status"),
+                estimated_date=None
+            )
 
         return ConsultationData(
             appointment=appointment_obj,
             prescription=prescription_obj,
             invoice=invoice_obj,
-            delivery=delivery_status,
+            delivery=delivery_obj,
+            patient=patient_info
         )
 
 
@@ -406,13 +541,16 @@ class ConsultAppointment:
 @strawberry.type
 class PrescriptionItem:
     id: int
-    name: str
+    medicine_name: str
+    medicine_code: Optional[str] = None
     dosage: Optional[str] = None
     frequency: Optional[str] = None
     duration: Optional[str] = None
     quantity: int
     unit: Optional[str] = None
     instructions: Optional[str] = None
+    unit_price: Optional[float] = None
+    line_total: Optional[float] = None
 
 @strawberry.type
 class Prescription:
@@ -437,11 +575,20 @@ class Delivery:
     estimated_date: Optional[str]
 
 @strawberry.type
+class PatientDetails:
+    patient_id: Optional[int]
+    patient_name: Optional[str]
+    address: Optional[str]
+    contact_number: Optional[str]
+    email: Optional[str]
+
+@strawberry.type
 class ConsultationData:
     appointment: ConsultAppointment
-    prescription: Prescription
+    prescription: Optional[Prescription]
     invoice: Optional[Invoice]
     delivery: Optional[Delivery]
+    patient: Optional[PatientDetails]
 
 @strawberry.type
 class Query:
@@ -461,93 +608,40 @@ class Query:
 
             appointments_list = appointments_data if isinstance(appointments_data, list) else [appointments_data]
 
+            # Fetch patient details once and reuse for every consultation record
+            patient_payload = await _fetch_patient_details_async(client, patientId)
+            patient_info = None
+            if isinstance(patient_payload, dict):
+                patient_info = PatientDetails(
+                    patient_id=patient_payload.get("patient_id"),
+                    patient_name=patient_payload.get("patient_name"),
+                    address=patient_payload.get("address"),
+                    contact_number=patient_payload.get("contact_number"),
+                    email=patient_payload.get("email"),
+                )
+
             # Doctor cache to prevent repeated calls
             doctor_cache = {}
 
             # Build bundles concurrently with a semaphore
             tasks = [
-                _build_bundle(client, appt, patientId, doctor_cache)
+                _build_bundle(client, appt, patientId, doctor_cache, patient_info)
                 for appt in appointments_list
             ]
             bundles = await asyncio.gather(*tasks)
 
             # Filter out any None results
             valid_bundles = [b for b in bundles if b is not None]
+            valid_bundles.sort(key=lambda b: b.appointment.datetime or "", reverse=True)
 
-            # Convert to GraphQL types
-            graphql_results = []
-            for b in valid_bundles:
-                appointment_obj = ConsultAppointment(
-                    id=b.appointment.id,
-                    consult_id=b.appointment.consult_id,
-                    patient_id=b.appointment.patient_id,
-                    doctor=ConsultDoctor(
-                        id=b.appointment.doctor.id,
-                        name=b.appointment.doctor.name,
-                        specialty=b.appointment.doctor.specialty
-                    ),
-                    datetime=b.appointment.datetime,
-                    notes=b.appointment.notes,
-                    status=b.appointment.status
-                )
-
-                prescription_items = [
-                    PrescriptionItem(
-                        id=item.id,
-                        name=item.name,
-                        quantity=item.quantity,
-                        dosage=getattr(item, "dosage", None),
-                        frequency=getattr(item, "frequency", None),
-                        duration=getattr(item, "duration", None),
-                        unit=getattr(item, "unit", None),
-                        instructions=getattr(item, "instructions", None),
-                    )
-                    for item in (b.prescription.items if b.prescription else [])
-                ]
-
-                prescription_obj = Prescription(
-                    id=b.prescription.id if b.prescription else b.appointment.id,
-                    items=prescription_items
-                )
-
-                invoice_obj = None
-                if b.invoice:
-                    invoice_obj = Invoice(
-                        id=b.invoice["id"],
-                        consultation_fee=b.invoice["consultation_fee"],
-                        medicine_fee=b.invoice["medicine_fee"],
-                        total=b.invoice["total"],
-                        status=b.invoice["status"],
-                        currency="SGD"
-                    )
-
-                delivery_obj = None
-                if b.delivery:
-                    delivery_obj = Delivery(
-                        id=b.delivery.get("id"),
-                        tracking_number=b.delivery.get("tracking_number"),
-                        address=b.delivery.get("address"),
-                        status=b.delivery.get("status"),
-                        estimated_date=None
-                    )
-
-                graphql_results.append(
-                    ConsultationData(
-                        appointment=appointment_obj,
-                        prescription=prescription_obj,
-                        invoice=invoice_obj,
-                        delivery=delivery_obj
-                    )
-                )
-
-            return graphql_results
+            return valid_bundles
 
 
 
 schema = strawberry.Schema(query=Query)
 graphql_app = GraphQL(schema)
 app = Starlette(routes=[
-    Route("/graphql", graphql_app)
+    Route("/api/graphql", graphql_app)
 ])
 # app.add_url_rule(
 #     "/graphql",

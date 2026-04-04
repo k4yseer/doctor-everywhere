@@ -4,10 +4,6 @@ import type { QueuePatient } from "./types";
 defineProps<{ queuePatients: QueuePatient[]; isCallDisabled?: boolean; isLoading?: boolean }>();
 const emit = defineEmits<{ (e: "call-next"): void; (e: "refresh"): void }>();
 
-function getWaitMinutes(index: number): number {
-  return (index + 1) * 8;
-}
-
 function formatTime(dateStr: string): string {
   try {
     return new Date(dateStr).toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -49,7 +45,7 @@ function formatTime(dateStr: string): string {
 
     <div class="queue-list">
       <TransitionGroup name="queue">
-        <div v-for="(patient, index) in queuePatients" :key="patient.id" class="queue-card">
+        <div v-for="patient in queuePatients" :key="patient.id" class="queue-card">
           <div class="card-row">
             <div class="patient-avatar">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="18" height="18">
@@ -57,11 +53,18 @@ function formatTime(dateStr: string): string {
               </svg>
             </div>
             <div class="patient-info">
-              <span class="patient-id">{{ patient.patient_id }}</span>
-              <span class="patient-time">Joined {{ formatTime(patient.created_at) }}</span>
+              <span class="patient-name">{{ patient.patient_name || `Patient ${patient.patient_id}` }}</span>
+              <span class="patient-id-sub">ID: {{ patient.patient_id }}</span>
             </div>
-            <div class="wait-badge">
-              <span class="wait-time">~{{ getWaitMinutes(index) }} min</span>
+            <div class="joined-badge">
+              <span class="joined-time">
+                Joined {{ new Date(patient.created_at + 'Z').toLocaleString('en-SG', {
+                                timeZone: 'Asia/Singapore',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: true
+              }) }}
+              </span>
             </div>
           </div>
         </div>
@@ -251,25 +254,27 @@ h2 {
   gap: 0.1rem;
 }
 
-.patient-id {
+.patient-name {
   font-size: 0.85rem;
   font-weight: 600;
   color: #fff;
+}
+
+.patient-id-sub {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.4);
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
 
-.patient-time {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.35);
+.joined-badge {
+  flex-shrink: 0;
 }
 
-.wait-badge { flex-shrink: 0; }
-
-.wait-time {
+.joined-time {
   font-size: 0.68rem;
   font-weight: 600;
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.06);
   padding: 0.25rem 0.5rem;
   border-radius: 0.35rem;
 }

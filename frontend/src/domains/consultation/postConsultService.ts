@@ -25,6 +25,7 @@ export interface PrescriptionItem {
   quantity: number;
   unit: string;
   instructions: string;
+  line_total?: number;
 }
 
 export interface Prescription {
@@ -49,16 +50,31 @@ export interface Delivery {
   estimated_date: string;
 }
 
+export interface PatientDetails {
+  patient_id: number;
+  patient_name: string;
+  address: string;
+  contact_number: string;
+  email: string;
+}
+
 export interface ConsultationData {
   appointment: ConsultAppointment;
   prescription: Prescription;
   invoice: Invoice;
   delivery: Delivery | null;
+  patient?: PatientDetails;
 }
 
 export interface MakePaymentPayload {
   appointment_id: number;
   patient_id: number;
+  amount: number;
+  currency: string;
+  paymentMethodId: string;
+  patient_address: string;
+  reserve_amount: number;
+  email: string;
 }
 
 export interface MakePaymentResponse {
@@ -68,6 +84,11 @@ export interface MakePaymentResponse {
 }
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+
+function timeValue(dateLike: unknown): number {
+  const t = new Date(String(dateLike ?? '')).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
 
 function mockDelay(ms = 900) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -141,6 +162,7 @@ export interface ConsultationHistoryItem {
   appointmentId: number;
   date: string;
   status: string;
+  patient?: PatientDetails;
   prescriptions?: Array<{ drugName: string; quantity: number }>;
   billing?: {
     amount?: number;
@@ -198,16 +220,25 @@ export const PostConsultService = {
               specialty
             }
           }
+          patient {
+            patientId
+            patientName
+            address
+            contactNumber
+            email
+          }
           prescription {
             items {
               id
-              name
+              medicineCode
+              medicineName
               quantity
               dosage
               frequency
               duration
               unit
               instructions
+              lineTotal
             }
           }
           invoice {
@@ -229,7 +260,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await apiClient.post('/graphql', {
+    const { data } = await apiClient.post('/api/graphql', {
       query,
       variables: { patientId: patient_id },
     });
@@ -245,12 +276,24 @@ export const PostConsultService = {
       appointmentId: r.appointment.id,
       date: r.appointment.datetime ? new Date(r.appointment.datetime + 'Z').toISOString() : '',
       status: r.appointment.status,
+      patient: r.patient
+        ? {
+            patient_id: r.patient.patientId,
+            patient_name: r.patient.patientName,
+            address: r.patient.address,
+            contact_number: r.patient.contactNumber,
+            email: r.patient.email,
+          }
+        : undefined,
+      doctor: r.appointment.doctor,
       prescriptions: r.prescription?.items?.map((p: any) => ({
-        drugName: p.name,
+        medicineName: p.medicineName,
         quantity: p.quantity,
       })) ?? [],
       billing: r.invoice
         ? {
+            medicine_fee: r.invoice.medicineFee ?? 0,
+            consultation_fee: r.invoice.consultationFee ?? 0,
             amount: r.invoice.total ?? 0,
             paymentStatus: r.invoice.status ?? 'Pending',
             deliveryStatus: r.delivery ?? 'Pending',
@@ -262,6 +305,7 @@ export const PostConsultService = {
           },
     }));
 
+    historyItems.sort((a, b) => timeValue(b.date) - timeValue(a.date))
     return historyItems;
   },
 
@@ -271,62 +315,109 @@ export const PostConsultService = {
       return buildMockData(appointment_id ?? 42, patient_id);
     }
 
-    const history = await this.getConsultationHistory(patient_id);
-    if (history.length === 0) {
+    const query = `
+      query ($patientId: Int!) {
+        consultationHistory(patientId: $patientId) {
+          appointment {
+            id
+            consultId
+            patientId
+            doctor { id name specialty }
+            datetime
+            notes
+            status
+          }
+          patient {
+            patientId
+            patientName
+            address
+            contactNumber
+            email
+          }
+          prescription {
+            id
+            items { id medicineCode medicineName dosage frequency duration quantity unit instructions lineTotal }
+          }
+          invoice {
+            id consultationFee medicineFee total status currency
+          }
+          delivery {
+            id trackingNumber address status estimatedDate
+          }
+        }
+      }
+    `;
+
+    const { data } = await apiClient.post('/api/graphql', {
+      query,
+      variables: { patientId: patient_id },
+    });
+
+    const records: any[] = data?.data?.consultationHistory ?? [];
+    if (records.length === 0) {
       throw new Error('No consultation data found');
     }
 
-    const raw = appointment_id
-      ? history.find((item) => item.appointmentId === appointment_id)
-      : history[history.length - 1];
+    const sortedRecords = [...records].sort(
+      (a, b) => timeValue(b?.appointment?.datetime) - timeValue(a?.appointment?.datetime),
+    )
 
-    if (!raw) {
+    const r = appointment_id
+      ? sortedRecords.find((item: any) => item.appointment.id === appointment_id)
+      : sortedRecords[0];
+
+    if (!r) {
       throw new Error(`Appointment ${appointment_id} not found`);
     }
+
     return {
       appointment: {
-        id: raw.appointmentId,
-        consult_id: `CONSULT-${String(raw.appointmentId).padStart(3, '0')}`,
+        id: r.appointment.id,
+        consult_id: r.appointment.consultId ?? `CONSULT-${String(r.appointment.id).padStart(3, '0')}`,
         patient_id,
-        doctor: { id: 0, name: 'Unknown', specialty: 'Unknown' },
-        datetime: raw.date,
-        notes: '',
-        status: raw.status,
+        doctor: r.appointment.doctor ?? { id: 0, name: 'Unknown', specialty: 'Unknown' },
+        datetime: r.appointment.datetime,
+        notes: r.appointment.notes ?? '',
+        status: r.appointment.status,
       },
+      patient: r.patient
+        ? {
+            patient_id: r.patient.patientId,
+            patient_name: r.patient.patientName,
+            address: r.patient.address ?? '',
+            contact_number: r.patient.contactNumber ?? '',
+            email: r.patient.email ?? '',
+          }
+        : undefined,
       prescription: {
-        id: 0,
-        items:
-          raw.prescriptions?.map((p: any, idx: number) => ({
-            id: idx + 1,
-            name: p.drugName,
-            dosage: '',
-            frequency: '',
-            duration: '',
-            quantity: p.quantity,
-            unit: '',
-            instructions: '',
-          })) ?? [],
+        id: r.prescription?.id ?? 0,
+        items: (r.prescription?.items ?? []).map((p: any) => ({
+          id: p.id,
+          name: p.medicineName ?? '',
+          dosage: p.dosage ?? p.dosageInstructions ?? p.dosage_instructions ?? '',
+          frequency: p.frequency ?? '',
+          duration: p.duration ?? '',
+          quantity: p.quantity ?? 0,
+          unit: p.unit ?? '',
+          instructions: p.instructions ?? '',
+          line_total: Number(p.lineTotal ?? p.line_total ?? p.totalPrice ?? p.total_price ?? 0) || undefined,
+        })),
       },
       invoice: {
-        id: raw.appointmentId,
-        consultation_fee: raw.billing?.amount ?? 0,
-        medicine_fee: 0,
-        total: raw.billing?.amount ?? 0,
-        status: raw.billing?.paymentStatus === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
-        currency: 'SGD',
+        id: r.invoice?.id ?? r.appointment.id,
+        consultation_fee: r.invoice?.consultationFee ?? 0,
+        medicine_fee: r.invoice?.medicineFee ?? 0,
+        total: r.invoice?.total ?? 0,
+        status: r.invoice?.status === 'PAID' || r.invoice?.status === 'Paid' ? 'PAID' : 'PENDING_PAYMENT',
+        currency: r.invoice?.currency ?? 'SGD',
       },
-      delivery: raw.billing?.deliveryStatus
+      delivery: r.delivery
         ? {
-            id: 0,
-            tracking_number: '',
-            address: '',
-            status:
-              raw.billing.deliveryStatus === 'Delivered'
-                ? 'DELIVERED'
-                : raw.billing.deliveryStatus === 'Dispatched'
-                ? 'DISPATCHED'
-                : 'PENDING',
-            estimated_date: '',
+            id: r.delivery.id ?? 0,
+            tracking_number: r.delivery.trackingNumber ?? '',
+            address: r.delivery.address ?? '',
+            status: r.delivery.status === 'DELIVERED' ? 'DELIVERED' : r.delivery.status === 'DISPATCHED' ? 'DISPATCHED' : 'PENDING',
+            estimated_date: r.delivery.estimatedDate ?? '',
           }
         : null,
     };

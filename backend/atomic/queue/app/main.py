@@ -33,7 +33,7 @@ class QueueEntry(Base):
     __tablename__ = "queue_entries"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    patient_id = Column(String(64), nullable=False)
+    patient_id = Column(Integer, nullable=False)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     def json(self):
@@ -110,8 +110,8 @@ def get_queue():
                     type: integer
                     example: 1
                   patient_id:
-                    type: string
-                    example: "10000001"
+                    type: integer
+                    example: 1
                   created_at:
                     type: string
                     example: "2024-01-01T10:00:00+00:00"
@@ -137,8 +137,8 @@ def create_queue_entry():
           required: [patient_id]
           properties:
             patient_id:
-              type: string
-              example: "10000001"
+              type: integer
+              example: 1
     responses:
       201:
         description: Patient added to the queue
@@ -204,7 +204,7 @@ def create_queue_entry():
     return jsonify({"code": 201, "queue_id": entry.id, "queue_position": queue_position, "data": entry.json()}), 201
 
 
-@app.route("/queue/position/<string:patient_id>", methods=["GET"])
+@app.route("/queue/position/<int:patient_id>", methods=["GET"])
 def get_queue_position(patient_id):
     """
     Get a patient's current position in the queue.
@@ -213,7 +213,7 @@ def get_queue_position(patient_id):
     parameters:
       - in: path
         name: patient_id
-        type: string
+        type: integer
         required: true
     responses:
       200:
@@ -225,8 +225,8 @@ def get_queue_position(patient_id):
               type: integer
               example: 200
             patient_id:
-              type: string
-              example: "10000001"
+              type: integer
+              example: 1
             queue_id:
               type: integer
               example: 3
@@ -269,8 +269,8 @@ def dequeue_head():
               type: integer
               example: 200
             patient_id:
-              type: string
-              example: "10000001"
+              type: integer
+              example: 1
       404:
         description: Queue is empty
         schema:

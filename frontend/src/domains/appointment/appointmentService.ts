@@ -27,6 +27,11 @@ interface GetAppointmentResponse {
   data: Appointment;
 }
 
+interface GetAppointmentsByPatientResponse {
+  code: 200;
+  data: Appointment[];
+}
+
 interface CreateAppointmentResponse {
   code: 201;
   appointment_id: number;
@@ -51,6 +56,17 @@ export const AppointmentService = {
   async getAppointment(id: number): Promise<Appointment> {
     const { data } = await apiClient.get<GetAppointmentResponse>(
       `${BASE}/${id}`,
+    );
+    return data.data;
+  },
+
+  /**
+   * Fetch all appointments for a patient.
+   * GET /appointments/patient/:patient_id
+   */
+  async getAppointmentsByPatient(patientId: number): Promise<Appointment[]> {
+    const { data } = await apiClient.get<GetAppointmentsByPatientResponse>(
+      `${BASE}/patient/${patientId}`,
     );
     return data.data;
   },

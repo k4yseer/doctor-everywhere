@@ -1,8 +1,9 @@
 import json
 import os
+from datetime import date
 from pathlib import Path
 
-from sqlalchemy import Column, ForeignKey, String, create_engine, delete
+from sqlalchemy import Column, Date, ForeignKey, String, create_engine, delete, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Paths and DB URL
@@ -29,8 +30,10 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 class Patient(Base):
     __tablename__ = "patients"
 
-    patient_id = Column(String(8), primary_key=True)
+    patient_id = Column(Integer, primary_key=True)
     patient_name = Column(String(64), nullable=False)
+    date_of_birth = Column(Date, nullable=True)
+    gender = Column(String(10), nullable=True)
     address = Column(String(64), nullable=False)
     contact_number = Column(String(8), nullable=False)
     email = Column(String(64), nullable=False)
@@ -68,11 +71,14 @@ def seed():
         # Insert patients first
         patients = []
         for patient in data.get("patients", []):
-            patient_id = str(patient["patient_id"])
+            patient_id = patient["patient_id"]
+            dob = patient.get("date_of_birth")
             patients.append(
                 Patient(
                     patient_id=patient_id,
                     patient_name=patient["patient_name"],
+                    date_of_birth=date.fromisoformat(dob) if dob else None,
+                    gender=patient.get("gender"),
                     address=patient["address"],
                     contact_number=patient["contact_number"],
                     email=patient["email"],
@@ -84,7 +90,7 @@ def seed():
         # Insert allergies next
         allergies = []
         for patient in data.get("patients", []):
-            patient_id = str(patient["patient_id"])
+            patient_id = patient["patient_id"]
             for allergy in patient.get("allergies", []):
                 allergies.append(Allergy(patient_id=patient_id, allergy=allergy))
         if allergies:

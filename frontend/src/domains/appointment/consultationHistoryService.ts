@@ -6,7 +6,20 @@
 import apiClient from '@/core/apiClient';
 import type { PatientHistory } from './components/doctor-dashboard/types';
 
-const GRAPHQL_PATH = '/get-consultation-history/graphql';
+interface ConsultationHistoryGraphQLRow {
+  appointment: {
+    id: number;
+    datetime: string;
+    status: string;
+    notes?: string | null;
+  };
+}
+
+interface ConsultationHistoryGraphQLResponse {
+  data?: {
+    consultationHistory?: ConsultationHistoryGraphQLRow[];
+  };
+}
 
 /**
  * Fetch past consultations for a patient (doctor-relevant fields only).
@@ -16,27 +29,29 @@ export async function getPatientVisitHistory(patientId: string): Promise<Patient
   const query = `
     query ($patientId: Int!) {
       consultationHistory(patientId: $patientId) {
-        appointmentId
-        date
-        status
-        clinicalNotes
+        appointment {
+          id
+          datetime
+          status
+          notes
+        }
       }
     }
   `;
 
   try {
-    const { data } = await apiClient.post(GRAPHQL_PATH, {
+    const { data } = await apiClient.post<ConsultationHistoryGraphQLResponse>('/graphql', {
       query,
       variables: { patientId: parseInt(patientId, 10) },
     });
 
     const items = data?.data?.consultationHistory ?? [];
 
-    return items.map((item: any) => ({
-      appointment_id: item.appointmentId,
-      date: item.date,
-      status: item.status,
-      clinical_notes: item.clinicalNotes ?? null,
+    return items.map((item) => ({
+      appointment_id: item.appointment.id,
+      date: item.appointment.datetime,
+      status: item.appointment.status,
+      clinical_notes: item.appointment.notes ?? null,
       prescriptions: [],
     }));
   } catch (e) {

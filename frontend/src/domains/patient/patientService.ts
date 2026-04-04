@@ -5,9 +5,11 @@ import apiClient from '@/core/apiClient';
 
 export interface Patient {
   patient_id: string;
-  name: string;
+  patient_name: string;
+  gender?: string;
+  address?: string;
+  contact_number?: string;
   email?: string;
-  phone?: string;
   date_of_birth?: string;
 }
 
@@ -16,6 +18,14 @@ export interface Allergy {
 }
 
 export const patientService = {
+  /**
+   * Get all patients
+   */
+  getAll: async () => {
+    const { data } = await apiClient.get<{ code: number; data: Patient[] }>('/api/patients');
+    return data;
+  },
+
   /**
    * Get patient details by ID
    */

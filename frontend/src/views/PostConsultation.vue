@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { loadStripe, type Stripe, type StripeCardElement, type StripeElements, type StripeCardElementChangeEvent } from '@stripe/stripe-js'
 import { useRouter, useRoute } from 'vue-router'
 import {
@@ -21,13 +21,14 @@ function parseRouteId(value: string | number | null | undefined | Array<string |
 
 const loading = ref(true)
 const consultation = ref<ConsultationData | null>(null)
+const useMock = import.meta.env.VITE_USE_MOCK === 'true'
 
 const deliveryAddress = ref('')
 const deliveryState = ref<'idle' | 'scheduling' | 'scheduled'>('idle')
 const delivery = ref<Delivery | null>(null)
+const isAddressConfirmed = ref(false)
 
-const phoneNumber = ref(import.meta.env.VITE_PATIENT_PHONE || '+6512345678')
-const medicineCode = ref(import.meta.env.VITE_MEDICINE_CODE || 'MED001')
+const email = ref('')
 const defaultPaymentMethodId = import.meta.env.VITE_STRIPE_PAYMENT_METHOD || 'pm_card_visa'
 const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || ''
 
@@ -45,6 +46,13 @@ const formattedDate = computed(() => {
     year: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 })
+const canPay = computed(() => {
+  return isAddressConfirmed.value && paymentState.value === 'idle'
+})
+function confirmAddress() {
+  if (!deliveryAddress.value.trim()) return
+  isAddressConfirmed.value = true
+}
 
 async function setupStripe() {
   if (!stripePublishableKey) {
@@ -60,6 +68,8 @@ async function setupStripe() {
 
   stripe.value = stripeInstance
   elements.value = stripeInstance.elements()
+
+  await nextTick()
 
   if (!cardElementRef.value || !elements.value) return
 
@@ -111,6 +121,15 @@ onMounted(async () => {
   const patientId = parseRouteId(route.query.patientId) ?? 1
   const appointmentId = parseRouteId(route.query.appointmentId)
   consultation.value = await PostConsultService.getConsultation(patientId, appointmentId)
+  const patient = consultation.value?.patient
+
+  if (patient) {
+    deliveryAddress.value = patient.address
+  }
+
+  email.value = useMock
+    ? import.meta.env.VITE_EMAIL
+    : (patient?.email || '')
   if (consultation.value.delivery) {
     delivery.value = consultation.value.delivery
     deliveryState.value = 'scheduled'
@@ -121,21 +140,6 @@ onMounted(async () => {
   loading.value = false
   await setupStripe()
 })
-
-async function scheduleDelivery() {
-  if (!deliveryAddress.value.trim() || !consultation.value) return
-  deliveryState.value = 'scheduling'
-  try {
-    delivery.value = await PostConsultService.scheduleDelivery(
-      consultation.value.appointment.id,
-      deliveryAddress.value.trim(),
-    )
-    consultation.value.delivery = delivery.value
-    deliveryState.value = 'scheduled'
-  } catch {
-    deliveryState.value = 'idle'
-  }
-}
 
 async function makePayment() {
   if (!consultation.value || paymentState.value !== 'idle') return
@@ -163,9 +167,8 @@ async function makePayment() {
     currency: consultation.value.invoice.currency.toLowerCase(),
     paymentMethodId: '',
     patient_address,
-    medicine_code: medicineCode.value,
     reserve_amount,
-    phone_number: phoneNumber.value,
+    email: email.value,
   }
 
   try {
@@ -259,7 +262,7 @@ function fmt(amount: number) {
 
           <div class="notes-box">
             <p class="notes-label">Doctor's Notes</p>
-            <p class="notes-text">{{ consultation.appointment.notes }}</p>
+            <p class="notes-text">{{ consultation.appointment.notes || 'No doctor notes recorded for this consultation.' }}</p>
           </div>
         </section>
 
@@ -285,12 +288,20 @@ function fmt(amount: number) {
               <div class="rx-top">
                 <div>
                   <span class="rx-name">{{ item.name }}</span>
-                  <span class="rx-dosage">{{ item.dosage }}</span>
+                  <span v-if="item.dosage" class="rx-dosage">{{ item.dosage }}</span>
                 </div>
-                <span class="rx-qty">{{ item.quantity }} {{ item.unit }}</span>
+                <div class="rx-right">
+                  <span class="rx-qty">{{ item.quantity }} {{ item.unit }}</span>
+                  <span v-if="item.line_total != null" class="rx-price">
+                    {{ consultation.invoice.currency }} {{ fmt(Number(item.line_total)) }}
+                  </span>
+                </div>
               </div>
-              <p class="rx-freq">{{ item.frequency }} · {{ item.duration }}</p>
-              <p class="rx-instructions">{{ item.instructions }}</p>
+              <p v-if="item.frequency || item.duration" class="rx-freq">
+                {{ [item.frequency, item.duration].filter(Boolean).join(' · ') }}
+              </p>
+              <p v-if="item.instructions" class="rx-instructions">{{ item.instructions }}</p>
+              <p v-else-if="!item.dosage" class="rx-instructions rx-instructions--muted">Dosage instructions unavailable.</p>
             </li>
           </ul>
         </section>
@@ -307,7 +318,7 @@ function fmt(amount: number) {
 
           <!-- Idle / form -->
           <div v-if="deliveryState === 'idle'" class="delivery-form">
-            <p class="delivery-hint">Enter your delivery address and we'll send your medicine straight to you.</p>
+            <p class="delivery-hint">Please confirm your delivery address to have your medicine delivered after payment.</p>
             <div class="input-wrap">
               <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />
@@ -315,19 +326,20 @@ function fmt(amount: number) {
               <input
                 v-model="deliveryAddress"
                 class="address-input"
+                :disabled="isAddressConfirmed"
                 placeholder="e.g. 80 Stamford Rd, Singapore 178902"
-                @keyup.enter="scheduleDelivery"
+                @keyup.enter="isAddressConfirmed = true"
               />
             </div>
             <button
               class="action-btn"
-              :disabled="!deliveryAddress.trim()"
-              @click="scheduleDelivery"
+              :disabled="!deliveryAddress.trim() || isAddressConfirmed"
+              @click="confirmAddress"
             >
-              Schedule Delivery
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+              {{ isAddressConfirmed ? 'Address Confirmed' : 'Confirm Address' }}
+              <!-- <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
                 <path d="M5 12h14M12 5l7 7-7 7" />
-              </svg>
+              </svg> -->
             </button>
           </div>
 
@@ -394,7 +406,7 @@ function fmt(amount: number) {
             </div>
           </div>
 
-          <div class="stripe-card-wrapper">
+          <div v-show="paymentState === 'idle'" class="stripe-card-wrapper">
             <label class="stripe-label">Card details</label>
             <div ref="cardElementRef" class="stripe-card"></div>
             <p v-if="cardError" class="stripe-error">{{ cardError }}</p>
@@ -405,13 +417,13 @@ function fmt(amount: number) {
 
           <!-- Pay button -->
           <div v-if="paymentState === 'idle'">
-            <button class="action-btn pay-btn" @click="makePayment">
+            <button class="action-btn pay-btn" :disabled="!canPay" @click="makePayment">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
                 <rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" />
               </svg>
               Pay {{ consultation.invoice.currency }} {{ fmt(consultation.invoice.total) }}
             </button>
-            <p class="pay-sub">Processed securely via Stripe. You'll receive an SMS receipt.</p>
+            <p class="pay-sub">Processed securely via Stripe. You'll receive an email receipt.</p>
           </div>
 
           <!-- Processing -->
@@ -428,7 +440,7 @@ function fmt(amount: number) {
               </svg>
               Payment Confirmed
             </div>
-            <p class="delivery-hint">An SMS receipt has been sent to your registered number.</p>
+            <p class="delivery-hint">A receipt has been sent to your email.</p>
           </div>
         </section>
 
@@ -725,6 +737,12 @@ function fmt(amount: number) {
   gap: 0.5rem;
 }
 
+.rx-right {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
 .rx-name {
   font-size: 0.97rem;
   font-weight: 700;
@@ -748,6 +766,12 @@ function fmt(amount: number) {
   padding: 0.15rem 0.6rem;
 }
 
+.rx-price {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 600;
+}
+
 .rx-freq {
   font-size: 0.83rem;
   color: rgba(255, 255, 255, 0.5);
@@ -759,6 +783,10 @@ function fmt(amount: number) {
   color: rgba(255, 255, 255, 0.3);
   margin: 0;
   font-style: italic;
+}
+
+.rx-instructions--muted {
+  color: rgba(255, 255, 255, 0.22);
 }
 
 /* ── Delivery ───────────────────────────────────────────────── */

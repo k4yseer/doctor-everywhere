@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { PostConsultService, type ConsultationHistoryItem } from '../domains/consultation/postConsultService'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const appointments = ref<ConsultationHistoryItem[]>([])
-const patientId = Number(import.meta.env.VITE_DEFAULT_PATIENT_ID ?? 1)
+const patientId = Number(route.query.patientId ?? import.meta.env.VITE_DEFAULT_PATIENT_ID ?? 1)
 
 async function loadAppointments() {
   loading.value = true

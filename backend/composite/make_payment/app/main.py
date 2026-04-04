@@ -103,7 +103,7 @@ def make_payment():
     currency = data.get("currency")
     payment_method_id = data.get("paymentMethodId")
     patient_address = data.get("patient_address")
-    phone_number = data.get("phone_number")
+    patient_email = data.get("email")
 
     # Legacy reservation and downstream orchestration removed from this service.
     # Inventory reservation and invoice creation happens in make-prescription.
@@ -176,18 +176,20 @@ def make_payment():
         "transaction_id": transaction_id,
         "amount": amount,
         "currency": currency,
-        "phone_number": phone_number,
+        "email": patient_email,
         "patient_address": patient_address,
     }
 
     try:
+        app.logger.info(f"🚀 OUTGOING MESSAGE: {event_payload}")
         publish_message("payment.success", event_payload)
         _log_step(correlation_id, "Published payment.success event")
     except Exception as err:
         _log_step(correlation_id, f"Failed to publish payment.success event: {err}")
 
     try:
-        patient_email = upstream.get_patient_email(patient_id)
+        if not patient_email:
+            patient_email = upstream.get_patient_email(patient_id)
         notification_publisher.publish_notification(
             "payment-details",
             {

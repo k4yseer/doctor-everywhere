@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { patientService, type Patient } from '../domains/patient/patientService'
 
 const router = useRouter()
+const profileOpen = ref(false)
+const loadingPatients = ref(false)
+const patientOptions = ref<Patient[]>([])
+const selectedPatientId = ref('')
 
 const tags = ['Instant Access', 'No Appointments', 'Telehealth']
 
@@ -48,8 +53,56 @@ function pillStyle(pill: Pill) {
   }
 }
 
+const activePatientLabel = computed(() => {
+  const selected = patientOptions.value.find((p) => String(p.patient_id) === selectedPatientId.value)
+  if (!selected) return 'No patient selected'
+  return `${selected.patient_name} (${selected.patient_id})`
+})
+
+const canProceed = computed(() => Boolean(selectedPatientId.value) && !loadingPatients.value)
+
+async function loadPatients() {
+  loadingPatients.value = true
+  try {
+    const response = await patientService.getAll()
+    patientOptions.value = response?.data ?? []
+
+    const saved = localStorage.getItem('demoPatientId')
+    const hasSaved = saved && patientOptions.value.some((p) => String(p.patient_id) === saved)
+    selectedPatientId.value = hasSaved
+      ? String(saved)
+      : (patientOptions.value[0] ? String(patientOptions.value[0].patient_id) : '')
+
+    persistSelectedPatient()
+  } finally {
+    loadingPatients.value = false
+  }
+}
+
+function persistSelectedPatient() {
+  if (!selectedPatientId.value) return
+  localStorage.setItem('demoPatientId', selectedPatientId.value)
+}
+
+function toggleProfilePanel() {
+  profileOpen.value = !profileOpen.value
+}
+
+function goToQueue() {
+  if (!canProceed.value) return
+  persistSelectedPatient()
+  router.push('/queue')
+}
+
+function goToConsults() {
+  if (!canProceed.value) return
+  persistSelectedPatient()
+  router.push({ path: '/appointments', query: { patientId: selectedPatientId.value } })
+}
+
 onMounted(() => {
   document.documentElement.classList.add('p-dark')
+  loadPatients()
 })
 onUnmounted(() => {
   document.documentElement.classList.remove('p-dark')
@@ -68,13 +121,33 @@ onUnmounted(() => {
         <span class="logo-text">doctor everywhere</span>
       </div>
 
-      <button class="nav-menu-btn" aria-label="Open menu">
-        <span class="dot" />
-        <span class="dot" />
-        <span class="dot" />
-        <span class="dot" />
+      <button class="profile-btn" aria-label="Open profile" @click="toggleProfilePanel">
+        <svg class="profile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
       </button>
     </nav>
+
+    <Transition name="profile-pop">
+      <div v-if="profileOpen" class="profile-panel">
+        <p class="profile-panel-title">Demo Profile</p>
+        <p class="profile-panel-sub">Select patient identity for queue interactions.</p>
+
+        <select
+          v-model="selectedPatientId"
+          class="profile-select"
+          :disabled="loadingPatients || patientOptions.length === 0"
+          @change="persistSelectedPatient"
+        >
+          <option v-for="patient in patientOptions" :key="patient.patient_id" :value="String(patient.patient_id)">
+            {{ patient.patient_name }} ({{ patient.patient_id }})
+          </option>
+        </select>
+
+        <p class="profile-active">Active: {{ activePatientLabel }}</p>
+      </div>
+    </Transition>
 
     <!-- ─── Hero ───────────────────────────────────────────── -->
     <section class="hero">
@@ -134,13 +207,13 @@ onUnmounted(() => {
           </div>
 
           <div class="hero-actions" style="display: flex; align-items: center;">
-            <button class="join-queue-btn" @click="router.push('/queue')">
+            <button class="join-queue-btn" :disabled="!canProceed" @click="goToQueue">
               Join Queue Now
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
-            <button class="join-queue-btn" @click="router.push('/appointments')" style="margin-left: 1rem;">
+            <button class="join-queue-btn" :disabled="!canProceed" @click="goToConsults" style="margin-left: 1rem;">
               View Consults
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
                 <path d="M9 5l7 7-7 7" />
@@ -171,17 +244,6 @@ onUnmounted(() => {
         </div>
       </div>
     </section>
-
-    <!-- ─── Bottom-right label ─────────────────────────────── -->
-    <div class="main-menu-badge">
-      <span>Main Menu</span>
-      <button class="mm-dots-btn" aria-label="Main menu">
-        <span class="dot" />
-        <span class="dot" />
-        <span class="dot" />
-        <span class="dot" />
-      </button>
-    </div>
   </div>
 </template>
 
@@ -242,19 +304,17 @@ onUnmounted(() => {
   letter-spacing: -0.01em;
 }
 
-.nav-menu-btn {
+.profile-btn {
   background: #22c55e;
   border: none;
   width: 46px;
   height: 46px;
   border-radius: 0.85rem;
   cursor: pointer;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  place-items: center;
-  gap: 4px;
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   transition: background 0.2s;
 
   &:hover {
@@ -262,12 +322,27 @@ onUnmounted(() => {
   }
 }
 
-.dot {
-  display: block;
-  width: 5px;
-  height: 5px;
-  background: white;
+.profile-mini-btn {
+  background: #22c55e;
+  border: none;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+
+  &:hover {
+    background: #16a34a;
+  }
+}
+
+.profile-icon {
+  width: 18px;
+  height: 18px;
+  color: #fff;
 }
 
 /* ─── Hero ────────────────────────────────────────────────── */
@@ -384,6 +459,12 @@ onUnmounted(() => {
   &:active {
     transform: scale(0.97);
   }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
 }
 
 /* ─── Description ─────────────────────────────────────────── */
@@ -492,24 +573,63 @@ onUnmounted(() => {
   letter-spacing: 0.01em;
 }
 
-.mm-dots-btn {
-  background: #22c55e;
-  border: none;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  place-items: center;
-  gap: 4px;
-  padding: 10px;
-  transition: background 0.2s;
+.profile-panel {
+  position: fixed;
+  top: 5.2rem;
+  right: 2.5rem;
+  z-index: 260;
+  width: min(320px, calc(100vw - 2rem));
+  background: rgba(16, 28, 20, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.95rem;
+  padding: 0.95rem;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+}
 
-  &:hover {
-    background: #16a34a;
-  }
+.profile-panel-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.profile-panel-sub {
+  margin: 0.35rem 0 0.8rem;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.profile-select {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  padding: 0.68rem 0.75rem;
+  font-size: 0.86rem;
+  outline: none;
+}
+
+.profile-select option {
+  background: #1a2a20;
+}
+
+.profile-active {
+  margin: 0.65rem 0 0.75rem;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.profile-pop-enter-active,
+.profile-pop-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.profile-pop-enter-from,
+.profile-pop-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 </style>
 

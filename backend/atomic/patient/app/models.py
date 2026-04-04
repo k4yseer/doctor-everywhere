@@ -1,10 +1,10 @@
-from sqlalchemy import Column, Date, ForeignKey, String
+from sqlalchemy import Column, Date, ForeignKey, Integer, String
 from app.database import Base
 
 class Patient(Base):
     __tablename__ = 'patients'
 
-    patient_id = Column(String(8), primary_key=True)
+    patient_id = Column(Integer, primary_key=True)
     patient_name = Column(String(64), nullable=False)
     date_of_birth = Column(Date, nullable=True)
     gender = Column(String(10), nullable=True)

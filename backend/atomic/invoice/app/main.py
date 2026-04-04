@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, g
 from flasgger import Swagger
-from sqlalchemy import create_engine, Column, String, Numeric, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Numeric, DateTime
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from datetime import datetime
 from os import environ
@@ -27,7 +27,7 @@ class Invoice(Base):
 
     invoice_id = Column(String(64), primary_key=True)
     appointment_id = Column(String(64), nullable=False)
-    patient_id = Column(String(64), nullable=False)
+    patient_id = Column(Integer, nullable=False)
     consultation_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
     medicine_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
     amount = Column(Numeric(10, 2), nullable=False)
@@ -104,8 +104,8 @@ def get_invoice(appt_id):
             type: string
             example: "1"
           patient_id:
-            type: string
-            example: "10000001"
+            type: integer
+            example: 1
           amount:
             type: number
             example: 50.00
@@ -158,8 +158,8 @@ def create_invoice(appt_id):
             - payment_status
           properties:
             patient_id:
-              type: string
-              example: "10000001"
+              type: integer
+              example: 1
             amount:
               type: number
               example: 50.00

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from werkzeug.exceptions import HTTPException
 from app.models import Patient, Allergies
 from app.database import engine, SessionLocal
-from app import models, seed
+from app import models
 from app.error_publisher import publish_error
 
 app = Flask(__name__)
@@ -20,8 +20,6 @@ swagger = Swagger(app, template={
 with app.app_context():
     models.Base.metadata.create_all(bind=engine)
 
-# to insert dummy data
-seed.register_cli(app)
 
 def get_db():
     if 'db' not in g:
@@ -33,6 +31,20 @@ def close_db(exception=None):
     db = g.pop('db', None)
     if db is not None:
         db.close()
+
+
+def _normalize_text(value):
+  if value is None:
+    return ""
+  return " ".join(str(value).lower().split())
+
+
+def _allergy_matches(prescription_item, allergy_item):
+  prescription_norm = _normalize_text(prescription_item)
+  allergy_norm = _normalize_text(allergy_item)
+  if not prescription_norm or not allergy_norm:
+    return False
+  return allergy_norm in prescription_norm or prescription_norm in allergy_norm
 
 def error_response(status_code, message, error_code, payload=None):
     publish_error(
@@ -72,8 +84,8 @@ def check_allergies():
           type: object
           properties:
             patient_id:
-              type: string
-              example: "10000001"
+              type: integer
+              example: 1
             prescription:
               type: array
               items:
@@ -117,7 +129,7 @@ def check_allergies():
     allergic_drugs = []
 
     for item in prescription_list:
-        if item in allergy_list:
+      if any(_allergy_matches(item, allergy) for allergy in allergy_list):
             passed = False
             allergic_drugs.append(item)
     
@@ -142,7 +154,7 @@ def check_allergies():
     )
 
 
-@app.route("/patient/<string:patient_id>/details")
+@app.route("/patient/<int:patient_id>/details")
 def find_by_id(patient_id):
     """
     Get patient details by ID
@@ -150,9 +162,9 @@ def find_by_id(patient_id):
     parameters:
       - name: patient_id
         in: path
-        type: string
+        type: integer
         required: true
-        example: "10000001"
+        example: 1
     responses:
       200:
         description: Patient details retrieved successfully
@@ -188,7 +200,38 @@ def find_by_id(patient_id):
                           {"patient_id": patient_id})
 
 
-@app.route("/patients/<string:patient_id>/allergies", methods=['GET'])
+@app.route("/patients", methods=['GET'])
+def get_all_patients():
+    """
+    Get all patients.
+    ---
+    responses:
+      200:
+        description: List of patients
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            data:
+              type: array
+              items:
+                type: object
+      404:
+        description: No patients found
+    """
+    patients = get_db().scalars(select(Patient).order_by(Patient.patient_id)).all()
+
+    if not patients:
+        return error_response(404, "No patients found.", "PATIENT-404-NOT_FOUND")
+
+    return jsonify({
+        "code": 200,
+        "data": [patient.json() for patient in patients],
+    })
+
+
+@app.route("/patients/<int:patient_id>/allergies", methods=['GET'])
 def get_patient_allergies(patient_id):
     """
     Get patient allergies
@@ -196,9 +239,9 @@ def get_patient_allergies(patient_id):
     parameters:
       - name: patient_id
         in: path
-        type: string
+        type: integer
         required: true
-        example: "10000001"
+        example: 1
     responses:
       200:
         description: List of patient allergies

@@ -17,8 +17,11 @@ export default defineConfig({
 
   server: {
     proxy: {
-      // Proxy /api/* → Kong API Gateway
       '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/graphql': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

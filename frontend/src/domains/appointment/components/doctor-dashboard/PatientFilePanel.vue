@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
-import type { DrugItem, MedicalCertificateDraft, ActivePatient, Medicine } from "./types";
+import type { MedicineItem, MedicalCertificateDraft, ActivePatient, Medicine } from "./types";
 
 const props = defineProps<{
   activePatient: ActivePatient | null;
-  prescribedDrugs: DrugItem[];
+  prescribedMedicines: MedicineItem[];
   emptyStateMessage: string;
   medicines: Medicine[];
 }>();
 
 const emit = defineEmits<{
-  (e: "add-drug", drug: { name: string; drugCode: string }): void;
-  (e: "remove-drug", drugId: number): void;
+  (e: "add-medicine", medicine: { name: string; medicineCode: string }): void;
+  (e: "remove-medicine", medicineId: number): void;
   (e: "update-instruction", payload: { id: number; value: string }): void;
   (e: "update-quantity", payload: { id: number; value: number }): void;
   (e: "update-mc", payload: MedicalCertificateDraft): void;
@@ -20,12 +20,12 @@ const emit = defineEmits<{
 const mcDays = ref(1);
 const mcStartDate = ref(new Date().toISOString().slice(0, 10));
 const mcSummary = ref("");
-const drugSearch = ref("");
+const medicineSearch = ref("");
 const showDropdown = ref(false);
 const activeTab = ref<"prescription" | "mc">("prescription");
 
 const filteredMedicines = computed(() => {
-  const query = drugSearch.value.toLowerCase().trim();
+  const query = medicineSearch.value.toLowerCase().trim();
   if (!query) return props.medicines.slice(0, 12);
   return props.medicines
     .filter((m) => m.medicine_name.toLowerCase().includes(query) || m.medicine_code.toLowerCase().includes(query))
@@ -33,8 +33,8 @@ const filteredMedicines = computed(() => {
 });
 
 function selectMedicine(med: Medicine): void {
-  emit("add-drug", { name: med.medicine_name, drugCode: med.medicine_code });
-  drugSearch.value = "";
+  emit("add-medicine", { name: med.medicine_name, medicineCode: med.medicine_code });
+  medicineSearch.value = "";
   showDropdown.value = false;
 }
 
@@ -68,7 +68,7 @@ watch(
     mcStartDate.value = new Date().toISOString().slice(0, 10);
     mcSummary.value = "";
     activeTab.value = "prescription";
-    drugSearch.value = "";
+    medicineSearch.value = "";
     showDropdown.value = false;
   }
 );
@@ -158,7 +158,7 @@ function formatHistoryDate(dateStr: string | null): string {
               <path d="M22 17.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
             </svg>
             Prescription
-            <span v-if="prescribedDrugs.length > 0" class="tab-count">{{ prescribedDrugs.length }}</span>
+            <span v-if="prescribedMedicines.length > 0" class="tab-count">{{ prescribedMedicines.length }}</span>
           </button>
           <button :class="['tab-btn', { active: activeTab === 'mc' }]" @click="activeTab = 'mc'">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -180,12 +180,12 @@ function formatHistoryDate(dateStr: string | null): string {
                 <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
               </svg>
               <input
-                v-model="drugSearch"
+                v-model="medicineSearch"
                 type="text"
                 placeholder="Search medicines..."
                 @focus="handleInputFocus"
                 @blur="handleBlur"
-                @keyup.enter="drugSearch && filteredMedicines[0] && selectMedicine(filteredMedicines[0])"
+                @keyup.enter="medicineSearch && filteredMedicines[0] && selectMedicine(filteredMedicines[0])"
               />
             </div>
 
@@ -213,30 +213,30 @@ function formatHistoryDate(dateStr: string | null): string {
 
           <!-- Prescribed List -->
           <div class="rx-list">
-            <div v-for="drug in prescribedDrugs" :key="drug.id" class="rx-item">
+            <div v-for="medicine in prescribedMedicines" :key="medicine.id" class="rx-item">
               <div class="rx-header">
-                <span class="rx-name">{{ drug.medication_name }}</span>
-                <button class="rx-remove" @click="emit('remove-drug', drug.id)" aria-label="Remove">×</button>
+                <span class="rx-name">{{ medicine.medicine_name }}</span>
+                <button class="rx-remove" @click="emit('remove-medicine', medicine.id)" aria-label="Remove">×</button>
               </div>
               <div class="rx-fields">
                 <input
-                  :value="drug.instruction"
+                  :value="medicine.instruction"
                   type="text"
                   class="rx-input"
                   placeholder="Dosage instructions..."
-                  @input="emit('update-instruction', { id: drug.id, value: ($event.target as HTMLInputElement).value })"
+                  @input="emit('update-instruction', { id: medicine.id, value: ($event.target as HTMLInputElement).value })"
                 />
                 <input
-                  :value="drug.dispense_quantity"
+                  :value="medicine.dispense_quantity"
                   type="number"
                   min="1"
                   max="99"
                   class="rx-qty"
-                  @input="emit('update-quantity', { id: drug.id, value: parseInt(($event.target as HTMLInputElement).value) || 1 })"
+                  @input="emit('update-quantity', { id: medicine.id, value: parseInt(($event.target as HTMLInputElement).value) || 1 })"
                 />
               </div>
             </div>
-            <div v-if="prescribedDrugs.length === 0" class="rx-empty">
+            <div v-if="prescribedMedicines.length === 0" class="rx-empty">
               <p>No medicines prescribed</p>
               <span>Search and add medicines above</span>
             </div>

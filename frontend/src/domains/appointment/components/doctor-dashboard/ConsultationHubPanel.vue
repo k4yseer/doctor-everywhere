@@ -6,7 +6,7 @@ const props = defineProps<{
   activePatient: ActivePatient | null;
   notes: string;
   emptyStateMessage: string;
-  issuedDrugCount: number;
+  issuedMedicineCount: number;
   issuedMcCount: number;
   sessionStartedAt: string;
   consultationStatus: ConsultationStatus;
@@ -139,7 +139,7 @@ const notesComplete = computed(() => props.notes.trim().length > 0);
           </div>
           <div class="summary-item">
             <span class="summary-label">Prescriptions</span>
-            <span class="summary-value" :class="{ 'value--set': issuedDrugCount > 0 }">{{ issuedDrugCount }} medicine(s)</span>
+            <span class="summary-value" :class="{ 'value--set': issuedMedicineCount > 0 }">{{ issuedMedicineCount }} medicine(s)</span>
           </div>
           <div class="summary-item">
             <span class="summary-label">MC Issued</span>

@@ -71,6 +71,8 @@ def make_prescription():
                 properties:
                   medicine_code:
                     type: string
+                                    medicine_name:
+                                        type: string
                   dosage_instructions:
                     type: string
                   dispense_quantity:
@@ -115,9 +117,9 @@ def make_prescription():
     # ── Step 3: Check patient allergies ────────────────────────────────────────
     try:
         prescription_names = [
-            str(m.get("medication_name", "")).strip()
+            str(m.get("medicine_name", "")).strip()
             for m in medicines
-            if str(m.get("medicine_code", "")).upper() != "MC" and str(m.get("medication_name", "")).strip()
+            if str(m.get("medicine_code", "")).upper() != "MC" and str(m.get("medicine_name", "")).strip()
         ]
 
         allergy_resp = requests.post(
@@ -215,6 +217,7 @@ def make_prescription():
                     "appointment_id":      str(appointment_id),
                     "patient_id":          str(patient_id),
                     "medicine_code":       "MC",
+                    "medicine_name":       "MC",
                     "dosage_instructions": "-",
                     "dispense_quantity":   0,
                     "total_price":         0.0,
@@ -245,6 +248,7 @@ def make_prescription():
                         "appointment_id":      str(appointment_id),
                         "patient_id":          str(patient_id),
                         "medicine_code":       medicine_code,
+                        "medicine_name":       str(medicine.get("medicine_name") or ""),
                         "dosage_instructions": medicine.get("dosage_instructions") or "",
                         "dispense_quantity":   int(medicine.get("dispense_quantity") or 0),
                         "total_price":         float(medicine.get("total_price") or 0.0),
@@ -290,7 +294,7 @@ def make_prescription():
         message={
             "patient_id":      patient_id,
             "appointment_id":  appointment_id,
-            "medicines":       [{"name": m.get("medication_name"), "quantity": m.get("dispense_quantity")} for m in medicines],
+            "medicines":       [{"name": m.get("medicine_name"), "quantity": m.get("dispense_quantity")} for m in medicines],
             "mc_start_date":   mc_start_date,
             "mc_duration_days": mc_duration_days,
             "prescription_ids": [p.get("prescription_id") for p in out_prescriptions]

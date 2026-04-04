@@ -34,7 +34,7 @@ TIMEOUT_SECONDS = 5
 
 
 def error_response(status_code, message, error_code, payload=None):
-    if status_code >= 500:
+    if status_code >= 400:
         _publish_error(
             source_service=SERVICE_NAME,
             error_code=error_code,
@@ -64,8 +64,22 @@ def error_response(status_code, message, error_code, payload=None):
 
 async def _safe_get_async(client: httpx.AsyncClient, url, params=None):
     try:
-        return await client.get(url, params=params)
-    except httpx.RequestError:
+        res = await client.get(url, params=params)
+        if res.status_code >= 500:
+            _publish_error(
+                source_service=SERVICE_NAME,
+                error_code=f"CONSULT-HISTORY-{res.status_code}-UPSTREAM",
+                error_message=f"Upstream service failed: {url} returned {res.status_code}",
+                payload={"url": url, "status_code": res.status_code},
+            )
+        return res
+    except httpx.RequestError as exc:
+        _publish_error(
+            source_service=SERVICE_NAME,
+            error_code="CONSULT-HISTORY-UPSTREAM-REQUEST_FAILED",
+            error_message=str(exc),
+            payload={"url": url},
+        )
         return None
 
 

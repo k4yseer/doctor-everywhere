@@ -10,8 +10,24 @@ import os
 import threading
 import time
 from datetime import datetime
+from prometheus_client import Counter, Gauge, start_http_server, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
+# ─── Prometheus Metrics ──────────────────────────────────────────────────────
+
+# Count total errors
+error_counter = Counter(
+    'error_events_total',
+    'Total error events',
+    ['source_service', 'error_code']
+)
+
+# Track unresolved errors (live count)
+open_errors_gauge = Gauge(
+    'open_errors',
+    'Current unresolved errors',
+    ['source_service']
+)
 CORS(app)
 Swagger(app)  # Swagger UI available at /apidocs
 
@@ -76,6 +92,11 @@ def process_error_message(ch, method, properties, body):
 
         source_service = data.get("source_service", method.routing_key.split(".")[0])
         error_code     = data.get("error_code", "UNKNOWN")
+        # Increment Prometheus counter
+        error_counter.labels(
+            source_service=source_service,
+            error_code=error_code
+        ).inc()
         error_message  = data.get("error_message", "No message provided")
         payload        = json.dumps(data.get("payload")) if data.get("payload") else None
 
@@ -148,6 +169,33 @@ def start_amqp_consumer():
                     connection.close()
             except Exception:
                 pass
+
+def update_open_errors():
+    """Periodically update unresolved error count from DB"""
+    while True:
+        session = Session()
+        try:
+            results = session.execute(
+                select(Error.source_service)
+                .where(Error.resolution_status == "UNRESOLVED")
+            ).scalars().all()
+
+            counts = {}
+            for svc in results:
+                counts[svc] = counts.get(svc, 0) + 1
+
+            # reset all first (important)
+            open_errors_gauge.clear()
+
+            for svc, count in counts.items():
+                open_errors_gauge.labels(source_service=svc).set(count)
+
+        except Exception as e:
+            print(f"[ERROR SERVICE] Failed to update open_errors: {e}")
+        finally:
+            session.close()
+
+        time.sleep(5)  # update every 5s
 
 
 # ─── REST Endpoints ────────────────────────────────────────────────────────────
@@ -235,12 +283,25 @@ def wait_for_db(max_retries=10, delay=3):
             time.sleep(delay)
     raise Exception("Database not ready after retries")
 
+@app.route("/metrics")
+def metrics():
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
 
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     wait_for_db()
     Base.metadata.create_all(engine)
+
+    # Start Prometheus metrics endpoint
+    start_http_server(9090, addr="0.0.0.0")
+
+    # Start AMQP consumer
     consumer_thread = threading.Thread(target=start_amqp_consumer, daemon=True)
     consumer_thread.start()
+
+    # Start unresolved error tracker
+    metrics_thread = threading.Thread(target=update_open_errors, daemon=True)
+    metrics_thread.start()
 
     app.run(host="0.0.0.0", port=5007, debug=False)

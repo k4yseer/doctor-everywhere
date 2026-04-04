@@ -31,7 +31,7 @@ class UpstreamError(Exception):
 
 
 def error_response(status_code, message, error_code, payload=None):
-    if status_code >= 500:
+    if status_code >= 400:
         _publish_error(source_service=SERVICE_NAME, error_code=error_code, error_message=message, payload=payload)
     return jsonify({"code": status_code, "message": message}), status_code
 

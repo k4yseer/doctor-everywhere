@@ -1,0 +1,203 @@
+{
+  "id": null,
+  "uid": "error-monitoring",
+  "title": "Error Monitoring (Microservices)",
+  "tags": ["errors", "monitoring"],
+  "timezone": "browser",
+  "schemaVersion": 42,
+  "version": 2,
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Total Error Rate (errors/sec)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(rate(error_events_total[5m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Rate Over Time",
+      "gridPos": { "x": 6, "y": 0, "w": 18, "h": 5 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(rate(error_events_total[5m]))",
+          "legendFormat": "errors/sec",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors by Service",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 7 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(rate(error_events_total[5m])) by (source_service)",
+          "legendFormat": "{{source_service}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors by Error Code",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 7 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(rate(error_events_total[5m])) by (error_code)",
+          "legendFormat": "{{error_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+  {
+    "type": "barchart",
+    "title": "Top Error Services (Current)",
+    "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+    "datasource": { "uid": "${DS_PROMETHEUS}" },
+    "targets": [
+      {
+        "expr": "topk(5, sum(error_events_total) by (source_service))",
+        "instant": true,
+        "legendFormat": "{{source_service:unknown}}",
+        "refId": "A"
+      }
+    ],
+    "fieldConfig": {
+      "defaults": {
+        "unit": "none",
+        "mappings": [],
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+      }
+    },
+    "options": {
+      "orientation": "horizontal",
+      "showValue": true,
+      "tooltip": { "mode": "single" }
+    },
+    "transformations": [
+      {
+        "id": "reduce",
+        "options": {
+          "calcs": ["last"],
+          "fields": "",
+          "mode": "all"
+        }
+      }
+    ]
+  },
+  {
+    "type": "barchart",
+    "title": "Top Error Codes (Current)",
+    "gridPos": { "x": 12, "y": 12, "w": 12, "h": 6 },
+    "datasource": { "uid": "${DS_PROMETHEUS}" },
+    "targets": [
+      {
+        "expr": "topk(5, sum(error_events_total) by (error_code))",
+        "instant": true,
+        "legendFormat": "{{error_code:unknown}}",
+        "refId": "A"
+      }
+    ],
+    "fieldConfig": {
+      "defaults": {
+        "unit": "none",
+        "mappings": [],
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+      }
+    },
+    "options": {
+      "orientation": "horizontal",
+      "showValue": true,
+      "tooltip": { "mode": "single" }
+    },
+    "transformations": [
+      {
+        "id": "reduce",
+        "options": {
+          "calcs": ["last"],
+          "fields": "",
+          "mode": "all"
+        }
+      }
+    ]
+  },
+    {
+      "type": "timeseries",
+      "title": "Current Unresolved Errors",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 6 },
+      "datasource": { "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "open_errors",
+          "legendFormat": "{{source_service}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+    "type": "table",
+    "title": "Error Breakdown (Service x Code)",
+    "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
+    "datasource": { "uid": "${DS_PROMETHEUS}" },
+    "targets": [
+        {
+        "expr": "sum(rate(error_events_total[5m])) by (source_service, error_code)",
+        "format": "table",
+        "instant": true,
+        "refId": "A"
+        }
+    ],
+    "transformations": [
+        {
+        "id": "organize",
+        "options": {
+            "renameByName": {
+            "source_service": "Service",
+            "error_code": "Error Code",
+            "Value": "Errors/sec"
+            }
+        }
+        },
+        {
+        "id": "groupBy",
+        "options": {
+            "fields": ["Service"],
+            "calculations": [
+            { "id": "sum", "mode": "total", "field": "Errors/sec", "name": "Total Errors" }
+            ]
+        }
+        }
+    ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "Prometheus"
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  }
+}

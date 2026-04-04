@@ -2,11 +2,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flasgger import Swagger
 import requests
-import pika
-import json
+import base64
 import os
 
 from error_publisher import publish_error as _publish_error
+import notification_publisher
 
 app = Flask(__name__)
 CORS(app)
@@ -23,30 +23,6 @@ PRESCRIPTION_SERVICE_URL = os.environ.get(
 
 CONSULTATION_FEE = float(os.environ.get("CONSULTATION_FEE", 50.0))
 CURRENCY = os.environ.get("CURRENCY", "SGD")
-
-# ─── AMQP Config ───────────────────────────────────────────────────────────────
-AMQP_URL      = os.environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
-EXCHANGE_NAME = "notifications"
-
-
-# ─── AMQP Helpers ──────────────────────────────────────────────────────────────
-def publish_message(routing_key: str, message: dict):
-    """Generic AMQP publisher — fire and forget."""
-    try:
-        connection = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-        channel    = connection.channel()
-        channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
-        channel.basic_publish(
-            exchange=EXCHANGE_NAME,
-            routing_key=routing_key,
-            body=json.dumps(message),
-            properties=pika.BasicProperties(delivery_mode=2)
-        )
-        connection.close()
-        print(f"[MAKE PRESCRIPTION] Published to '{routing_key}'")
-    except Exception as e:
-        print(f"[MAKE PRESCRIPTION] AMQP publish failed: {e}")
-
 
 # ─── Main Endpoint ─────────────────────────────────────────────────────────────
 @app.route("/api/make-prescription", methods=["POST"])
@@ -71,8 +47,8 @@ def make_prescription():
                 properties:
                   medicine_code:
                     type: string
-                                    medicine_name:
-                                        type: string
+                  medicine_name:
+                    type: string
                   dosage_instructions:
                     type: string
                   dispense_quantity:
@@ -99,6 +75,7 @@ def make_prescription():
     medicines           = data.get("medicines", [])
     mc_start_date       = data.get("mc_start_date")
     mc_duration_days    = data.get("mc_duration_days")
+    mc_diagnosis        = data.get("mc_diagnosis", "")
     consultation_notes  = data.get("consultation_notes", "")
     consultation_fee    = CONSULTATION_FEE
     medicine_fee        = 0.0
@@ -290,34 +267,95 @@ def make_prescription():
 
     # ── Step 10: Publish PRESCRIPTION_MADE for Resend notification ─────────────
     if mc_start_date and mc_duration_days:
-        try:     
-            patient_resp = requests.get(f"{PATIENT_SERVICE_URL}/patients/{patient_id}/details", timeout=5)
-            patient_email = patient_resp.json().get("data", {}).get("email", "")
-            
+        try:
+            from datetime import date, timedelta
+            patient_resp = requests.get(f"{PATIENT_SERVICE_URL}/patient/{patient_id}/details", timeout=5)
+            patient_data = patient_resp.json().get("data", {})
+            patient_email = patient_data.get("email", "")
+            patient_name  = patient_data.get("patient_name", f"Patient {patient_id}")
+
+            start = date.fromisoformat(mc_start_date)
+            end   = start + timedelta(days=int(mc_duration_days) - 1)
+            issued_on = date.today().strftime("%d %B %Y")
+            start_fmt = start.strftime("%d %B %Y")
+            end_fmt   = end.strftime("%d %B %Y")
+            diagnosis = mc_diagnosis.strip() if mc_diagnosis else "As certified by attending physician"
+
             from fpdf import FPDF
-            import base64
+
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, txt=f"Medical Certificate", ln=True, align="C")
-            pdf.cell(200, 10, txt=f"Appointment ID: {appointment_id}", ln=True)
-            pdf.cell(200, 10, txt=f"Patient ID: {patient_id}", ln=True)
-            pdf.cell(200, 10, txt=f"MC Start Date: {mc_start_date}", ln=True)
-            pdf.cell(200, 10, txt=f"MC Duration: {mc_duration_days} days", ln=True)
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(200, 10, txt="MEDICAL CERTIFICATE", ln=True, align="C")
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(200, 8, txt="Doctor Everywhere Telehealth Services", ln=True, align="C")
+            pdf.ln(4)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.ln(6)
+
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(200, 8, txt=f"Date Issued: {issued_on}    |    Ref: MC-{appointment_id}", ln=True)
+            pdf.ln(4)
+
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(60, 8, txt="Patient Name:", ln=False)
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(0, 8, txt=patient_name, ln=True)
+
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(60, 8, txt="Patient ID:", ln=False)
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(0, 8, txt=str(patient_id), ln=True)
+            pdf.ln(4)
+
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.ln(6)
+
+            pdf.set_font("Arial", "", 11)
+            pdf.multi_cell(0, 8, txt=(
+                f"This is to certify that the above-named patient was examined on {issued_on} "
+                f"and is medically unfit for work or school duties for the period stated below."
+            ))
+            pdf.ln(4)
+
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(60, 8, txt="Diagnosis:", ln=False)
+            pdf.set_font("Arial", "", 11)
+            pdf.multi_cell(0, 8, txt=diagnosis)
+            pdf.ln(2)
+
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(60, 8, txt="Leave From:", ln=False)
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(0, 8, txt=start_fmt, ln=True)
+
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(60, 8, txt="Leave To:", ln=False)
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(0, 8, txt=end_fmt, ln=True)
+
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(60, 8, txt="Duration:", ln=False)
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(0, 8, txt=f"{mc_duration_days} day(s)", ln=True)
+            pdf.ln(10)
+
+            pdf.line(10, pdf.get_y(), 80, pdf.get_y())
+            pdf.ln(4)
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(200, 8, txt="Attending Physician", ln=True)
+            pdf.set_font("Arial", "I", 10)
+            pdf.cell(200, 8, txt="Doctor Everywhere Telehealth", ln=True)
+
             pdf_bytes = pdf.output()
             mc_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
-            
-            publish_message(
-                routing_key="notification.mc",
-                message={
-                    "type": "send-mc",
-                    "email": patient_email,
-                    "appointment_id": appointment_id,
-                    "mc_start_date":   mc_start_date,
-                    "filename": f"MC_{appointment_id}.pdf",
-                    "file_content": mc_base64
-                }
-            )
+
+            notification_publisher.publish_notification("send-mc", {
+                "email": patient_email,
+                "appointment_id": appointment_id,
+                "filename": f"MC_{appointment_id}.pdf",
+                "file_content": mc_base64,
+            })
         except Exception as e:
             _publish_error("notification_service", "NOTIF-500", str(e), data)
             print(f"[MAKE PRESCRIPTION] Failed to publish MC notification: {e}")

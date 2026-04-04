@@ -222,10 +222,12 @@ async function submitConsultation() {
       })),
       mc_start_date: mcDraft.value.diagnosisSummary.trim() ? mcDraft.value.startDate : null,
       mc_duration_days: mcDraft.value.diagnosisSummary.trim() ? mcDraft.value.leaveDays : null,
+      mc_diagnosis: mcDraft.value.diagnosisSummary.trim() || null,
     });
 
     displayToast(`Consultation for ${p.patient_name} submitted successfully.`, 'success');
     closeSession();
+    loadMedicines();
   } catch (e: unknown) {
     console.error("Failed to submit consultation:", e);
     displayToast(getApiErrorMessage(e, 'Failed to submit consultation. Please try again.'), 'error');

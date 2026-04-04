@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { QueueService } from '../domains/appointment/queueService'
 import { AppointmentService } from '../domains/appointment/appointmentService'
-import { patientService } from '../domains/patient/patientService'
+import { usePatientSessionStore } from '@/stores/patientSessionStore'
 
 type PageState = 'joining' | 'queued' | 'called' | 'no_show' | 'error'
 
@@ -14,8 +15,10 @@ const queue = ref<{ queue_position: number; waiting_time: number } | null>(null)
 const errorMsg = ref('')
 const refreshing = ref(false)
 const showNoDoctersToast = ref(false)
-const selectedPatientId = ref('')
-const selectedPatientName = ref('')
+const patientSessionStore = usePatientSessionStore()
+const { selectedPatient } = storeToRefs(patientSessionStore)
+const selectedPatientId = computed(() => selectedPatient.value ? String(selectedPatient.value.patient_id) : '')
+const selectedPatientName = computed(() => selectedPatient.value?.patient_name ?? '')
 
 type ApiErrorLike = {
   message?: string
@@ -100,6 +103,9 @@ async function joinQueueForSelectedPatient() {
   state.value = 'joining'
 
   try {
+    if (!selectedPatientId.value) {
+      throw new Error('No active profile selected. Please select a patient on the landing page.')
+    }
     queue.value = await QueueService.joinQueue(selectedPatientId.value)
     state.value = 'queued'
   } catch (err) {
@@ -113,6 +119,8 @@ async function joinQueueForSelectedPatient() {
 }
 
 async function refresh() {
+  if (!selectedPatientId.value) return
+
   refreshing.value = true
   try {
     const entry = await QueueService.getQueueStatus(selectedPatientId.value)
@@ -145,22 +153,9 @@ async function refresh() {
 
 async function init() {
   try {
-    const saved = localStorage.getItem('demoPatientId')
-
-    if (saved) {
-      const details = await patientService.getById(saved)
-      const payload = details?.data
-      selectedPatientId.value = String(payload?.patient_id ?? saved)
-      selectedPatientName.value = String(payload?.patient_name ?? `Patient ${saved}`)
-    } else {
-      const listing = await patientService.getAll()
-      const first = listing?.data?.[0]
-      if (!first) {
-        throw new Error('No patients available. Please set a profile on the landing page.')
-      }
-      selectedPatientId.value = String(first.patient_id)
-      selectedPatientName.value = String(first.patient_name)
-      localStorage.setItem('demoPatientId', selectedPatientId.value)
+    await patientSessionStore.initialize()
+    if (!selectedPatient.value) {
+      throw new Error('No patients available. Please set a profile on the landing page.')
     }
 
     await joinQueueForSelectedPatient()

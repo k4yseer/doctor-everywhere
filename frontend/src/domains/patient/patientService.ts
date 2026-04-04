@@ -22,7 +22,7 @@ export const patientService = {
    * Get all patients
    */
   getAll: async () => {
-    const { data } = await apiClient.get<{ code: number; data: Patient[] }>('/api/patients');
+    const { data } = await apiClient.get<{ code: number; data: Patient[] }>('/patients');
     return data;
   },
 

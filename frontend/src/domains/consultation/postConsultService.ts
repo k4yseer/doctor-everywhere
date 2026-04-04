@@ -260,7 +260,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await apiClient.post('/api/graphql', {
+    const { data } = await apiClient.post('/graphql', {
       query,
       variables: { patientId: patient_id },
     });
@@ -348,7 +348,7 @@ export const PostConsultService = {
       }
     `;
 
-    const { data } = await apiClient.post('/api/graphql', {
+    const { data } = await apiClient.post('/graphql', {
       query,
       variables: { patientId: patient_id },
     });

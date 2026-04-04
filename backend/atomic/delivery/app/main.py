@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flasgger import Swagger
+from werkzeug.exceptions import HTTPException
 from sqlalchemy import create_engine, Column, String, Text, DateTime, select
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from app.error_publisher import publish_error as _publish_error
 import uuid
 import os
 import json
@@ -14,6 +16,36 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 Swagger(app)  # Swagger UI at /apidocs
+
+SERVICE_NAME = "delivery_service"
+
+def error_response(status_code, message, error_code, payload=None):
+    _publish_error(
+        source_service=SERVICE_NAME,
+        error_code=error_code,
+        error_message=message,
+        payload=payload,
+    )
+    return jsonify({"code": status_code, "message": message}), status_code
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    if isinstance(err, HTTPException):
+        return error_response(
+            err.code or 500,
+            err.description,
+            f"DELIVERY-{err.code or 500}-HTTP",
+            {"path": request.path, "method": request.method},
+        )
+
+    return error_response(
+        500,
+        "Internal server error",
+        "DELIVERY-500-UNHANDLED",
+        {"path": request.path, "method": request.method, "error": str(err)},
+    )
+
 
 # ─── Database Setup ────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ.get(
@@ -83,7 +115,12 @@ def get_deliveries_by_patient(patient_id):
             try:
                 appointment_id = int(appointment_id)  # <-- FIX: convert to integer
             except ValueError:
-                return jsonify({"code": 400, "message": "Invalid appointment_id"}), 400
+                return error_response(
+                    400,
+                    "Invalid appointment_id",
+                    "DELIVERY-400-INVALID_APPOINTMENT_ID",
+                    {"appointment_id": appointment_id},
+                )
 
             deliveries = session.execute(
                 select(Delivery).where(Delivery.appointment_id == appointment_id)
@@ -97,7 +134,12 @@ def get_deliveries_by_patient(patient_id):
             ).scalars().all()
 
         if not deliveries:
-            return jsonify({"code": 404, "message": "No deliveries found"}), 404
+            return error_response(
+                404,
+                "No deliveries found",
+                "DELIVERY-404-NOT_FOUND",
+                {"patient_id": patient_id, "appointment_id": appointment_id},
+            )
 
         return jsonify({"code": 200, "data": [d.to_dict() for d in deliveries]}), 200
     finally:
@@ -136,7 +178,12 @@ def create_delivery_order():
         tracking_number = data.get("tracking_number")  # optional at creation
 
         if not appointment_id or not patient_address:
-            return jsonify({"code": 400, "message": "appointment_id and patient_address are required"}), 400
+            return error_response(
+                400,
+                "appointment_id and patient_address are required",
+                "DELIVERY-400-MISSING_FIELDS",
+                {"appointment_id": appointment_id, "patient_address": patient_address},
+            )
 
         delivery = Delivery(
             delivery_id=str(uuid.uuid4()),
@@ -152,7 +199,12 @@ def create_delivery_order():
 
     except Exception as e:
         session.rollback()
-        return jsonify({"code": 500, "message": str(e)}), 500
+        return error_response(
+            500,
+            str(e),
+            "DELIVERY-500-CREATE_FAILED",
+            {"error": str(e)},
+        )
     finally:
         session.close()
 
@@ -190,7 +242,12 @@ def update_delivery_status(delivery_id):
         ).scalar_one_or_none()
 
         if not delivery:
-            return jsonify({"code": 404, "message": "Delivery not found"}), 404
+            return error_response(
+                404,
+                "Delivery not found",
+                "DELIVERY-404-NOT_FOUND",
+                {"delivery_id": delivery_id},
+            )
 
         data = request.get_json()
 
@@ -204,7 +261,12 @@ def update_delivery_status(delivery_id):
 
     except Exception as e:
         session.rollback()
-        return jsonify({"code": 500, "message": str(e)}), 500
+        return error_response(
+            500,
+            str(e),
+            "DELIVERY-500-UPDATE_FAILED",
+            {"error": str(e)},
+        )
     finally:
         session.close()
 
@@ -242,14 +304,26 @@ def process_payment_success(ch, method, properties, body):
                 session.add(delivery)
                 session.commit()
                 app.logger.info(f"Created delivery for appointment_id={appointment_id}")
-        except Exception:
+        except Exception as e:
             session.rollback()
+            _publish_error(
+                source_service=SERVICE_NAME,
+                error_code="DELIVERY-500-PAYMENT_EVENT",
+                error_message=f"Failed to create delivery from payment.success event: {e}",
+                payload={"appointment_id": appointment_id, "patient_address": patient_address},
+            )
             app.logger.exception("Failed to create delivery from payment.success event")
         finally:
             session.close()
 
         ch.basic_ack(delivery_tag=method.delivery_tag)
-    except Exception:
+    except Exception as e:
+        _publish_error(
+            source_service=SERVICE_NAME,
+            error_code="DELIVERY-500-PAYMENT_EVENT_PROCESS",
+            error_message=f"Error processing payment.success message: {e}",
+            payload={"body": body.decode('utf-8', errors='replace') if isinstance(body, (bytes, bytearray)) else str(body)},
+        )
         app.logger.exception("Error processing payment.success message")
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -281,7 +355,12 @@ def start_amqp_consumer():
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=QUEUE_NAME, on_message_callback=process_payment_success)
             channel.start_consuming()
-        except Exception:
+        except Exception as e:
+            _publish_error(
+                source_service=SERVICE_NAME,
+                error_code="DELIVERY-500-AMQP_CONSUMER",
+                error_message=f"Delivery service AMQP consumer error: {e}",
+            )
             app.logger.exception("Delivery service AMQP consumer error")
             time.sleep(delay)
             delay = min(delay * 2, 60)

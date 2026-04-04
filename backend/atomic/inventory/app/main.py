@@ -128,7 +128,12 @@ def get_medicine(medicine_code):
     db = get_db()
     medicine = db.query(Medicine).filter_by(medicine_code=medicine_code).first()
     if not medicine:
-        return jsonify({"code": 404, "message": f"Medicine '{medicine_code}' not found in inventory"}), 404
+        return _error_response(
+            404,
+            f"Medicine '{medicine_code}' not found in inventory",
+            "INVENTORY-404-NOT_FOUND",
+            {"medicine_code": medicine_code},
+        )
     return jsonify({"data": medicine.json()}), 200
 
 
@@ -140,7 +145,7 @@ def close_db(exception=None):
 
 
 def _error_response(status_code, message, error_code, payload=None, publish=False):
-    if publish:
+    if status_code >= 400 or publish:
         _publish_error(
             source_service="inventory_service",
             error_code=error_code,
@@ -208,20 +213,36 @@ def reserve_medicine():
     """
     data = request.get_json()
     if not data:
-        return jsonify({"error": "Request body is required"}), 400
+        return _error_response(
+            400,
+            "Request body is required",
+            "INVENTORY-400-MISSING_BODY",
+        )
 
     medicine_code = data.get("medicine_code")
     appointment_id = data.get("appointment_id")
     amount = data.get("amount")
 
     if not medicine_code or not appointment_id or amount is None:
-        return jsonify({"error": "medicine_code, appointment_id, and amount are required"}), 400
+        return _error_response(
+            400,
+            "medicine_code, appointment_id, and amount are required",
+            "INVENTORY-400-MISSING_FIELDS",
+        )
 
     if not isinstance(appointment_id, int) or appointment_id <= 0:
-        return jsonify({"error": "appointment_id must be a positive integer"}), 400
+        return _error_response(
+            400,
+            "appointment_id must be a positive integer",
+            "INVENTORY-400-INVALID_APPOINTMENT_ID",
+        )
 
     if not isinstance(amount, int) or amount <= 0:
-        return jsonify({"error": "amount must be a positive integer"}), 400
+        return _error_response(
+            400,
+            "amount must be a positive integer",
+            "INVENTORY-400-INVALID_AMOUNT",
+        )
 
     db = get_db()
 
@@ -230,14 +251,24 @@ def reserve_medicine():
         # Acquire FOR UPDATE lock on the medicine row
         medicine = db.query(Medicine).with_for_update().filter_by(medicine_code=medicine_code).first()
         if not medicine:
-            return jsonify({"error": f"Medicine '{medicine_code}' not found"}), 404
+            return _error_response(
+                404,
+                f"Medicine '{medicine_code}' not found",
+                "INVENTORY-404-MEDICINE_NOT_FOUND",
+                {"medicine_code": medicine_code},
+            )
 
         if medicine.stock_available < amount:
-            return jsonify({
-                "error": "Insufficient stock",
-                "stock_available": medicine.stock_available,
-                "requested": amount,
-            }), 400
+            return _error_response(
+                400,
+                "Insufficient stock",
+                "INVENTORY-400-INSUFFICIENT_STOCK",
+                {
+                    "medicine_code": medicine_code,
+                    "stock_available": medicine.stock_available,
+                    "requested": amount,
+                },
+            )
 
         # Deduct from available and create reservation (reservations are source of truth)
         medicine.stock_available -= amount
@@ -285,7 +316,12 @@ def fulfill_reservation(appointment_id):
 
     reservations = db.query(Reservation).filter_by(appointment_id=appointment_id).all()
     if not reservations:
-        return jsonify({"error": f"No reservations found for appointment_id '{appointment_id}'"}), 404
+        return _error_response(
+            404,
+            f"No reservations found for appointment_id '{appointment_id}'",
+            "INVENTORY-404-NO_RESERVATIONS",
+            {"appointment_id": appointment_id},
+        )
 
     try:
         fulfilled_reservations = []

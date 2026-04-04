@@ -12,6 +12,19 @@ app = Flask(__name__)
 CORS(app)
 Swagger(app)  # Swagger UI at /apidocs
 
+SERVICE_NAME = "make_prescription"
+
+def error_response(status_code, message, error_code, payload=None):
+    if status_code >= 400:
+        _publish_error(
+            source_service=SERVICE_NAME,
+            error_code=error_code,
+            error_message=message,
+            payload=payload,
+        )
+    return jsonify({"code": status_code, "message": message}), status_code
+
+
 # ─── Service URLs ──────────────────────────────────────────────────────────────
 PATIENT_SERVICE_URL    = os.environ.get("PATIENT_SERVICE_URL",    "http://patient-service:5003")
 INVENTORY_SERVICE_URL  = os.environ.get("INVENTORY_SERVICE_URL",  "http://inventory-service:5009")
@@ -82,14 +95,24 @@ def make_prescription():
     currency            = CURRENCY
 
     if not all([appointment_id, patient_id]):
-        return jsonify({"code": 400, "message": "Missing required fields"}), 400
+        return error_response(
+            400,
+            "Missing required fields",
+            "MAKE-PRESCRIPTION-400-MISSING_FIELDS",
+            {"appointment_id": appointment_id, "patient_id": patient_id},
+        )
 
     try:
         appointment_id = int(appointment_id)
         if appointment_id <= 0:
             raise ValueError()
     except (TypeError, ValueError):
-        return jsonify({"code": 400, "message": "appointment_id must be a positive integer"}), 400
+        return error_response(
+            400,
+            "appointment_id must be a positive integer",
+            "MAKE-PRESCRIPTION-400-INVALID_APPOINTMENT_ID",
+            {"appointment_id": appointment_id},
+        )
 
     # ── Step 3: Check patient allergies ────────────────────────────────────────
     try:
@@ -113,22 +136,35 @@ def make_prescription():
             if allergy_data.get("check") == "FAILED":
                 allergic_drugs = allergy_data.get("allergic_drugs") or []
                 if allergic_drugs:
-                    return jsonify({
-                        "code": 400,
-                        "message": f"Patient is allergic to {', '.join(map(str, allergic_drugs))}",
-                    }), 400
-                return jsonify({
-                    "code": 400,
-                    "message": "Patient has an allergy conflict with prescribed medicine",
-                }), 400
+                    return error_response(
+                        400,
+                        f"Patient is allergic to {', '.join(map(str, allergic_drugs))}",
+                        "MAKE-PRESCRIPTION-400-ALLERGY_CONFLICT",
+                        {"allergic_drugs": allergic_drugs},
+                    )
+                return error_response(
+                    400,
+                    "Patient has an allergy conflict with prescribed medicine",
+                    "MAKE-PRESCRIPTION-400-ALLERGY_CONFLICT",
+                )
         elif allergy_resp.status_code == 404:
-            return jsonify({"code": 404, "message": "Patient not found"}), 404
+            return error_response(
+                404,
+                "Patient not found",
+                "MAKE-PRESCRIPTION-404-PATIENT_NOT_FOUND",
+                {"patient_id": patient_id},
+            )
         else:
             raise Exception(f"Patient service returned {allergy_resp.status_code}")
 
     except Exception as e:
         _publish_error("patient_service", "PATIENT-500", str(e), data)
-        return jsonify({"code": 500, "message": "Failed to verify patient allergies"}), 500
+        return error_response(
+            500,
+            "Failed to verify patient allergies",
+            "MAKE-PRESCRIPTION-500-PATIENT_CHECK_FAILED",
+            {"error": str(e)},
+        )
 
     # ── Step 5: Check and reserve inventory for all medicines ──────────────────
     reservations = []
@@ -140,7 +176,12 @@ def make_prescription():
             if dispense_quantity <= 0:
                 raise ValueError()
         except (TypeError, ValueError):
-            return jsonify({"code": 400, "message": "dispense_quantity must be a positive integer"}), 400
+            return error_response(
+                400,
+                "dispense_quantity must be a positive integer",
+                "MAKE-PRESCRIPTION-400-INVALID_QUANTITY",
+                {"medicine_code": medicine_code, "dispense_quantity": medicine.get("dispense_quantity")},
+            )
         if medicine_code and medicine_code != "MC":
             try:
                 stock_resp = requests.get(
@@ -152,7 +193,12 @@ def make_prescription():
                 else:
                     stock = stock_resp.json().get("data", {})
                 if stock and stock.get("stock_available", 0) < dispense_quantity:
-                    return jsonify({"code": 400, "message": f"Insufficient stock for {medicine_code}"}), 400
+                    return error_response(
+                        400,
+                        f"Insufficient stock for {medicine_code}",
+                        "MAKE-PRESCRIPTION-400-INSUFFICIENT_STOCK",
+                        {"medicine_code": medicine_code, "available": stock.get("stock_available", 0), "requested": dispense_quantity},
+                    )
                 unit_price = stock.get("unit_price", 0.0)
                 try:
                     unit_price = float(unit_price)

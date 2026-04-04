@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, g
 from flasgger import Swagger
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, DateTime
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from werkzeug.exceptions import HTTPException
+from app.error_publisher import publish_error as _publish_error
 from datetime import datetime
 from os import environ
 import uuid
@@ -14,6 +16,36 @@ Swagger(app, template={
         "description": "Manages invoices linked to patient appointments.",
     }
 })
+
+SERVICE_NAME = "invoice_service"
+
+def error_response(status_code, message, error_code, payload=None):
+    _publish_error(
+        source_service=SERVICE_NAME,
+        error_code=error_code,
+        error_message=message,
+        payload=payload,
+    )
+    return jsonify({"code": status_code, "message": message}), status_code
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    if isinstance(err, HTTPException):
+        return error_response(
+            err.code or 500,
+            err.description,
+            f"INVOICE-{err.code or 500}-HTTP",
+            {"path": request.path, "method": request.method},
+        )
+
+    return error_response(
+        500,
+        "Internal server error",
+        "INVOICE-500-UNHANDLED",
+        {"path": request.path, "method": request.method, "error": str(err)},
+    )
+
 
 DB_URL = environ.get('dbURL', 'mysql+pymysql://root:root@localhost:3306/invoice_db')
 engine = create_engine(DB_URL)
@@ -126,7 +158,12 @@ def get_invoice(appt_id):
     invoice = db.query(Invoice).filter_by(appointment_id=appt_id).first()
 
     if not invoice:
-        return jsonify({'code': 404, 'message': 'Invoice not found for appointment_id: ' + appt_id}), 404
+        return error_response(
+            404,
+            'Invoice not found for appointment_id: ' + appt_id,
+            'INVOICE-404-NOT_FOUND',
+            {'appointment_id': appt_id},
+        )
 
     return jsonify({'code': 200, 'data': invoice.json()}), 200
 
@@ -194,12 +231,21 @@ def create_invoice(appt_id):
     """
     data = request.get_json()
     if not data:
-        return jsonify({'code': 400, 'message': 'Request body is required'}), 400
+        return error_response(
+            400,
+            'Request body is required',
+            'INVOICE-400-MISSING_BODY',
+        )
 
     required = ['patient_id', 'currency', 'payment_status']
     missing = [f for f in required if f not in data]
     if missing:
-        return jsonify({'code': 400, 'message': 'Missing required fields: ' + ', '.join(missing)}), 400
+        return error_response(
+            400,
+            'Missing required fields: ' + ', '.join(missing),
+            'INVOICE-400-MISSING_FIELDS',
+            {'missing_fields': missing},
+        )
 
     consultation_fee = float(data.get('consultation_fee', 0.0))
     medicine_fee = float(data.get('medicine_fee', 0.0))
@@ -211,7 +257,12 @@ def create_invoice(appt_id):
     db = get_db()
     exists = db.query(Invoice).filter_by(appointment_id=appt_id).first()
     if exists:
-        return jsonify({'code': 409, 'message': 'Invoice already exists for appointment_id: ' + appt_id}), 409
+        return error_response(
+            409,
+            'Invoice already exists for appointment_id: ' + appt_id,
+            'INVOICE-409-ALREADY_EXISTS',
+            {'appointment_id': appt_id},
+        )
 
     invoice = Invoice(
         invoice_id=data.get('invoice_id', str(uuid.uuid4())),
@@ -237,17 +288,30 @@ def create_invoice(appt_id):
 def update_invoice(appt_id):
     data = request.get_json()
     if not data:
-        return jsonify({'code': 400, 'message': 'Request body is required'}), 400
+        return error_response(
+            400,
+            'Request body is required',
+            'INVOICE-400-MISSING_BODY',
+        )
 
     allowed = {'payment_status', 'stripe_charge_id'}
     update_data = {k: v for k, v in data.items() if k in allowed}
     if not update_data:
-        return jsonify({'code': 400, 'message': 'Nothing to update'}), 400
+        return error_response(
+            400,
+            'Nothing to update',
+            'INVOICE-400-NOTHING_TO_UPDATE',
+        )
 
     db = get_db()
     invoice = db.query(Invoice).filter_by(appointment_id=appt_id).first()
     if not invoice:
-        return jsonify({'code': 404, 'message': 'Invoice not found for appointment_id: ' + appt_id}), 404
+        return error_response(
+            404,
+            'Invoice not found for appointment_id: ' + appt_id,
+            'INVOICE-404-NOT_FOUND',
+            {'appointment_id': appt_id},
+        )
 
     if 'payment_status' in update_data:
         invoice.payment_status = update_data['payment_status']

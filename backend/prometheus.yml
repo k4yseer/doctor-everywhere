@@ -6,3 +6,7 @@ scrape_configs:
     static_configs:
       # This points to your Kong container's Admin API port
       - targets: ['kong-dbless:8001']
+
+  - job_name: 'error-service'
+    static_configs:
+      - targets: ['error-service:5007']

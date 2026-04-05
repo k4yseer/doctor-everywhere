@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { loadStripe, type Stripe, type StripeCardElement, type StripeElements, type StripeCardElementChangeEvent } from '@stripe/stripe-js'
 import { useRouter, useRoute } from 'vue-router'
+import { usePatientSessionStore } from '@/stores/patientSessionStore'
 import {
   PostConsultService,
   type ConsultationData,
@@ -11,6 +12,7 @@ import {
 
 const router = useRouter()
 const route = useRoute()
+const patientSessionStore = usePatientSessionStore()
 
 function parseRouteId(value: string | number | null | undefined | Array<string | number | null>): number | undefined {
   if (value == null) return undefined
@@ -121,15 +123,16 @@ onMounted(async () => {
   const patientId = parseRouteId(route.query.patientId) ?? 1
   const appointmentId = parseRouteId(route.query.appointmentId)
   consultation.value = await PostConsultService.getConsultation(patientId, appointmentId)
-  const patient = consultation.value?.patient
+  const storePatient = patientSessionStore.selectedPatient
+  const patient = storePatient
 
-  if (patient) {
+  if (patient?.address) {
     deliveryAddress.value = patient.address
   }
 
   email.value = useMock
     ? import.meta.env.VITE_EMAIL
-    : (patient?.email || '')
+    : (storePatient?.email || patient?.email || '')
   if (consultation.value.delivery) {
     delivery.value = consultation.value.delivery
     deliveryState.value = 'scheduled'

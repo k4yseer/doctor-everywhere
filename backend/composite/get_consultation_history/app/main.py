@@ -23,7 +23,6 @@ APPOINTMENT_URL = os.environ.get("appointmentURL", "http://appointment-service:5
 INVOICE_URL = os.environ.get("invoiceURL", "http://invoice-service:5008")
 DELIVERY_URL = os.environ.get("deliveryURL", "http://delivery-service:5014")
 DOCTOR_URL = os.environ.get("doctorURL", "http://doctor-service:5001")
-PATIENT_URL = os.environ.get("patientURL", "http://patient-service:5003")
 INVENTORY_URL = os.environ.get("inventoryURL", "http://inventory-service:5009")
 PRESCRIPTION_URL = os.environ.get(
     "prescriptionURL",
@@ -376,23 +375,8 @@ async def _extract_delivery_status_async(client, appointment_id, patient_id, inv
 
     return None
 
-
-async def _fetch_patient_details_async(client, patient_id):
-    res = await _safe_get_async(client, f"{PATIENT_URL}/patient/{patient_id}/details")
-    if not res or res.status_code >= 400:
-        return None
-
-    try:
-        payload = _extract_data(res.json())
-    except ValueError:
-        return None
-
-    if isinstance(payload, dict):
-        return payload
-    return None
-
 semaphore = asyncio.Semaphore(10)
-async def _build_bundle(client, appt, patient_id, doctor_cache, patient_info):
+async def _build_bundle(client, appt, patient_id, doctor_cache):
     async with semaphore:
         raw_id = appt.get("appointment_id", appt.get("id"))
         if raw_id is None:
@@ -482,7 +466,6 @@ async def _build_bundle(client, appt, patient_id, doctor_cache, patient_info):
             prescription=prescription_obj,
             invoice=invoice_obj,
             delivery=delivery_obj,
-            patient=patient_info
         )
 
 
@@ -589,20 +572,11 @@ class Delivery:
     estimated_date: Optional[str]
 
 @strawberry.type
-class PatientDetails:
-    patient_id: Optional[int]
-    patient_name: Optional[str]
-    address: Optional[str]
-    contact_number: Optional[str]
-    email: Optional[str]
-
-@strawberry.type
 class ConsultationData:
     appointment: ConsultAppointment
     prescription: Optional[Prescription]
     invoice: Optional[Invoice]
     delivery: Optional[Delivery]
-    patient: Optional[PatientDetails]
 
 @strawberry.type
 class Query:
@@ -622,24 +596,12 @@ class Query:
 
             appointments_list = appointments_data if isinstance(appointments_data, list) else [appointments_data]
 
-            # Fetch patient details once and reuse for every consultation record
-            patient_payload = await _fetch_patient_details_async(client, patientId)
-            patient_info = None
-            if isinstance(patient_payload, dict):
-                patient_info = PatientDetails(
-                    patient_id=patient_payload.get("patient_id"),
-                    patient_name=patient_payload.get("patient_name"),
-                    address=patient_payload.get("address"),
-                    contact_number=patient_payload.get("contact_number"),
-                    email=patient_payload.get("email"),
-                )
-
             # Doctor cache to prevent repeated calls
             doctor_cache = {}
 
             # Build bundles concurrently with a semaphore
             tasks = [
-                _build_bundle(client, appt, patientId, doctor_cache, patient_info)
+                _build_bundle(client, appt, patientId, doctor_cache)
                 for appt in appointments_list
             ]
             bundles = await asyncio.gather(*tasks)

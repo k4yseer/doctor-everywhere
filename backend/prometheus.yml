@@ -10,3 +10,63 @@ scrape_configs:
   - job_name: 'error-service'
     static_configs:
       - targets: ['error-service:5007']
+
+  - job_name: 'appointment-service'
+    static_configs:
+      - targets: ['appointment-service:5002']
+
+  - job_name: 'doctor-service'
+    static_configs:
+      - targets: ['doctor-service:5001']
+
+  - job_name: 'patient-service'
+    static_configs:
+      - targets: ['patient-service:5003']
+
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:5004']
+
+  - job_name: 'payment-wrapper'
+    static_configs:
+      - targets: ['payment-wrapper:5005']
+
+  - job_name: 'teleconferencing-wrapper'
+    static_configs:
+      - targets: ['teleconferencing-wrapper:5006']
+
+  - job_name: 'invoice-service'
+    static_configs:
+      - targets: ['invoice-service:5008']
+
+  - job_name: 'inventory-service'
+    static_configs:
+      - targets: ['inventory-service:5009']
+
+  - job_name: 'join-queue-service'
+    static_configs:
+      - targets: ['join-queue-service:5010']
+
+  - job_name: 'queue-service'
+    static_configs:
+      - targets: ['queue-service:5011']
+
+  - job_name: 'setup-consultation-service'
+    static_configs:
+      - targets: ['setup-consultation-service:5012']
+
+  - job_name: 'get-consultation-history-service'
+    static_configs:
+      - targets: ['get-consultation-history-service:5013']
+
+  - job_name: 'delivery-service'
+    static_configs:
+      - targets: ['delivery-service:5014']
+
+  - job_name: 'make-prescription-service'
+    static_configs:
+      - targets: ['make-prescription:5015']
+
+  - job_name: 'make-payment-service'
+    static_configs:
+      - targets: ['make-payment:5016']

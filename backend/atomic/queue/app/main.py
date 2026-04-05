@@ -6,6 +6,7 @@ from sqlalchemy import Column, DateTime, Integer, String, create_engine, func
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from werkzeug.exceptions import HTTPException
 from flasgger import Swagger
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from app.error_publisher import publish_error as _publish_error
 
@@ -20,6 +21,7 @@ Swagger(app, template={
 
 DB_URL = environ.get("dbURL", "mysql+pymysql://root:root@queue-db:3306/queue_db")
 SERVICE_NAME = "queue"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -336,6 +338,10 @@ def remove_queue_entry(entry_id):
     db.commit()
     return jsonify({"code": 200, "message": "Queue entry removed"}), 200
 
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5011, debug=True)

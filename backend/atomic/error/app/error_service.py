@@ -28,6 +28,9 @@ open_errors_gauge = Gauge(
     'Current unresolved errors',
     ['source_service']
 )
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
+SERVICE_NAME = "error"
+
 CORS(app)
 Swagger(app)  # Swagger UI available at /apidocs
 
@@ -285,6 +288,7 @@ def wait_for_db(max_retries=10, delay=3):
 
 @app.route("/metrics")
 def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
     return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 

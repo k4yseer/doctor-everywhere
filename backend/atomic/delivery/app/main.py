@@ -12,12 +12,15 @@ import threading
 import time
 import pika
 from datetime import datetime
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 CORS(app)
 Swagger(app)  # Swagger UI at /apidocs
 
 SERVICE_NAME = "delivery_service"
+
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 def error_response(status_code, message, error_code, payload=None):
     _publish_error(
@@ -369,5 +372,10 @@ def start_amqp_consumer():
 t = threading.Thread(target=start_amqp_consumer, daemon=True)
 t.start()
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5014, debug=False)

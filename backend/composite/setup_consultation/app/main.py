@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, request
 from flasgger import Swagger
 from werkzeug.exceptions import HTTPException
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from app.error_publisher import publish_error as _publish_error
 from app import upstream, notification_publisher
 from app.upstream import UpstreamError
 
 SERVICE_NAME = "consultation-setup"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 app = Flask(__name__)
 swagger = Swagger(app, template={
@@ -226,6 +228,10 @@ def next_patient():
         "start_url": start_url,
     }), 200
 
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5012, debug=True)

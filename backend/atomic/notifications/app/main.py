@@ -8,6 +8,7 @@ import threading
 import base64
 import time
 from urllib import request as urllib_request, error as urllib_error
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 AMQP_URL = os.environ.get("AMQP_URL", "amqp://guest:guest@localhost:5672/")
 EXCHANGE_NAME = "notifications"
@@ -16,6 +17,8 @@ ROUTING_KEY = "notification.#"
 PATIENT_SERVICE_URL = os.environ.get("PATIENT_SERVICE_URL", "http://patient:5003")
 PAYMENT_SUCCESS_ROUTING_KEY = "payment.success"
 PAYMENT_SUCCESS_QUEUE = "notification_payment_success_queue"
+SERVICE_NAME = "notifications"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 app = Flask(__name__)
 
@@ -88,6 +91,11 @@ def start_amqp_consumer():
 
 t = threading.Thread(target=start_amqp_consumer, daemon=True)
 t.start()
+
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5004, debug=False)

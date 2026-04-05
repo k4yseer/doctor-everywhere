@@ -11,6 +11,7 @@ from flasgger import Swagger
 from sqlalchemy import Column, DateTime, Enum, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from werkzeug.exceptions import HTTPException
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 Swagger(app, template={
@@ -27,6 +28,7 @@ SERVICE_NAME = "appointment"
 EXCHANGE_NAME = "topic_logs"
 PAYMENT_SUCCESS_ROUTING_KEY = "payment.success"
 QUEUE_NAME = "appointment.payment.success"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -469,6 +471,10 @@ def update_appointment_status(id):
 
     return jsonify({"code": 200, "message": "Appointment updated successfully", "data": appointment.json()}), 200
 
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5002, debug=True)

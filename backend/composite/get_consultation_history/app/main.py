@@ -11,12 +11,15 @@ from strawberry.flask.views import GraphQLView
 from werkzeug.exceptions import HTTPException
 from starlette.applications import Starlette
 from starlette.routing import Route
+from starlette.responses import Response
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Gauge
 
 from app.error_publisher import publish_error as _publish_error
 
 # app = Flask(__name__)
 
 SERVICE_NAME = "consultation-orchestrator"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 # Required environment variables/defaults from spec.
 APPOINTMENT_URL = os.environ.get("appointmentURL", "http://appointment-service:5002")
@@ -616,8 +619,16 @@ class Query:
 
 schema = strawberry.Schema(query=Query)
 graphql_app = GraphQL(schema)
+
+async def metrics(request):
+    """Prometheus metrics endpoint for get_consultation_history service"""
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    metrics_output = generate_latest()
+    return Response(content=metrics_output, media_type=CONTENT_TYPE_LATEST)
+
 app = Starlette(routes=[
-    Route("/api/graphql", graphql_app)
+    Route("/api/graphql", graphql_app),
+    Route("/metrics", metrics)
 ])
 # app.add_url_rule(
 #     "/graphql",

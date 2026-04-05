@@ -4,6 +4,7 @@ from flasgger import Swagger
 import requests
 import base64
 import os
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from error_publisher import publish_error as _publish_error
 import notification_publisher
@@ -13,6 +14,7 @@ CORS(app)
 Swagger(app)  # Swagger UI at /apidocs
 
 SERVICE_NAME = "make_prescription"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 def error_response(status_code, message, error_code, payload=None):
     if status_code >= 400:
@@ -38,7 +40,7 @@ CONSULTATION_FEE = float(os.environ.get("CONSULTATION_FEE", 50.0))
 CURRENCY = os.environ.get("CURRENCY", "SGD")
 
 # ─── Main Endpoint ─────────────────────────────────────────────────────────────
-@app.route("/api/make-prescription", methods=["POST"])
+@app.route("/make-prescription", methods=["POST"])
 def make_prescription():
     """
     Composite: orchestrate allergy check, inventory reservation, and prescription creation.
@@ -443,5 +445,10 @@ def make_prescription():
 
 
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5015, debug=False)

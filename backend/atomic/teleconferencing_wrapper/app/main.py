@@ -5,6 +5,7 @@ import requests
 import pika
 from flask import Flask, request, jsonify
 from flasgger import Swagger
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 swagger = Swagger(app, template={
@@ -23,6 +24,8 @@ ZOOM_ACCOUNT_ID    = os.getenv("ZOOM_ACCOUNT_ID")
 ZOOM_CLIENT_ID     = os.getenv("ZOOM_CLIENT_ID")
 ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
 RABBITMQ_URL       = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+SERVICE_NAME = "teleconferencing-wrapper"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 
 # ── Zoom helpers ──────────────────────────────────────────────────────────────
@@ -239,6 +242,10 @@ def health():
     """Health check endpoint."""
     return jsonify({"status": "ok"}), 200
 
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     port = int(os.getenv("ZOOM_WRAPPER_PORT", 5006))

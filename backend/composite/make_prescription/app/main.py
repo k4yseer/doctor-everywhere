@@ -40,7 +40,7 @@ CONSULTATION_FEE = float(os.environ.get("CONSULTATION_FEE", 50.0))
 CURRENCY = os.environ.get("CURRENCY", "SGD")
 
 # ─── Main Endpoint ─────────────────────────────────────────────────────────────
-@app.route("/make-prescription", methods=["POST"])
+@app.route("/api/make-prescription", methods=["POST"])
 def make_prescription():
     """
     Composite: orchestrate allergy check, inventory reservation, and prescription creation.

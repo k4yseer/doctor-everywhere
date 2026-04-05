@@ -3,7 +3,7 @@ from flasgger import Swagger
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, DateTime
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from werkzeug.exceptions import HTTPException
-from app.error_publisher import publish_error as _publish_error
+from error_publisher import publish_error as _publish_error
 from datetime import datetime
 from os import environ
 import uuid

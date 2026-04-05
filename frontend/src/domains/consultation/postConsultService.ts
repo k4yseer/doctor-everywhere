@@ -50,20 +50,11 @@ export interface Delivery {
   estimated_date: string;
 }
 
-export interface PatientDetails {
-  patient_id: number;
-  patient_name: string;
-  address: string;
-  contact_number: string;
-  email: string;
-}
-
 export interface ConsultationData {
   appointment: ConsultAppointment;
   prescription: Prescription;
   invoice: Invoice;
   delivery: Delivery | null;
-  patient?: PatientDetails;
 }
 
 export interface MakePaymentPayload {
@@ -162,7 +153,6 @@ export interface ConsultationHistoryItem {
   appointmentId: number;
   date: string;
   status: string;
-  patient?: PatientDetails;
   prescriptions?: Array<{ drugName: string; quantity: number }>;
   billing?: {
     amount?: number;
@@ -220,13 +210,6 @@ export const PostConsultService = {
               specialty
             }
           }
-          patient {
-            patientId
-            patientName
-            address
-            contactNumber
-            email
-          }
           prescription {
             items {
               id
@@ -276,15 +259,6 @@ export const PostConsultService = {
       appointmentId: r.appointment.id,
       date: r.appointment.datetime ? new Date(r.appointment.datetime + 'Z').toISOString() : '',
       status: r.appointment.status,
-      patient: r.patient
-        ? {
-            patient_id: r.patient.patientId,
-            patient_name: r.patient.patientName,
-            address: r.patient.address,
-            contact_number: r.patient.contactNumber,
-            email: r.patient.email,
-          }
-        : undefined,
       doctor: r.appointment.doctor,
       prescriptions: r.prescription?.items?.map((p: any) => ({
         medicineName: p.medicineName,
@@ -326,13 +300,6 @@ export const PostConsultService = {
             datetime
             notes
             status
-          }
-          patient {
-            patientId
-            patientName
-            address
-            contactNumber
-            email
           }
           prescription {
             id
@@ -380,15 +347,6 @@ export const PostConsultService = {
         notes: r.appointment.notes ?? '',
         status: r.appointment.status,
       },
-      patient: r.patient
-        ? {
-            patient_id: r.patient.patientId,
-            patient_name: r.patient.patientName,
-            address: r.patient.address ?? '',
-            contact_number: r.patient.contactNumber ?? '',
-            email: r.patient.email ?? '',
-          }
-        : undefined,
       prescription: {
         id: r.prescription?.id ?? 0,
         items: (r.prescription?.items ?? []).map((p: any) => ({

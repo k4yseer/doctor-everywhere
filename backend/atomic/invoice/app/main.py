@@ -7,6 +7,7 @@ from error_publisher import publish_error as _publish_error
 from datetime import datetime
 from os import environ
 import uuid
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 Swagger(app, template={
@@ -18,6 +19,7 @@ Swagger(app, template={
 })
 
 SERVICE_NAME = "invoice_service"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 def error_response(status_code, message, error_code, payload=None):
     _publish_error(
@@ -323,6 +325,10 @@ def update_invoice(appt_id):
 
     return jsonify({'code': 200, 'data': invoice.json()}), 200
 
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5008, debug=True)

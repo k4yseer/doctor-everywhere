@@ -7,6 +7,7 @@ from flasgger import Swagger
 from sqlalchemy import Column, Enum, Integer, String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from werkzeug.exceptions import HTTPException
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 Swagger(app, template={
@@ -20,6 +21,7 @@ Swagger(app, template={
 DB_URL = environ.get("dbURL", "mysql+pymysql://root:root@localhost:3306/doctor_db")
 AMQP_URL = environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
 SERVICE_NAME = "doctor"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -172,6 +174,11 @@ def get_doctor_by_id(doctor_id):
         )
 
     return jsonify({"code": 200, "data": doctor.json()}), 200
+
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)

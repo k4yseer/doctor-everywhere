@@ -6,6 +6,7 @@ from app.models import Patient, Allergies
 from app.database import engine, SessionLocal
 from app import models
 from app.error_publisher import publish_error
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 swagger = Swagger(app, template={
@@ -17,6 +18,8 @@ swagger = Swagger(app, template={
 })
 
 # create tables if not exist
+SERVICE_NAME = "patient"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 with app.app_context():
     models.Base.metadata.create_all(bind=engine)
 
@@ -279,6 +282,10 @@ def get_patient_allergies(patient_id):
         "data": [{"allergy": a} for a in allergies]
     })
 
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == '__main__':
     app.run(port=5003, debug=True)

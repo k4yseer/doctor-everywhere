@@ -7,6 +7,7 @@ import json
 import os
 import uuid
 from decimal import Decimal, InvalidOperation
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from app.error_publisher import publish_error as _publish_error
 from app import upstream, notification_publisher
@@ -19,6 +20,7 @@ Swagger(app)  # Swagger UI at /apidocs
 AMQP_URL      = os.environ.get("AMQP_URL", "amqp://guest:guest@rabbitmq:5672/")
 EXCHANGE_NAME = "topic_logs"
 SERVICE_NAME = "make-payment"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 
 # ─── AMQP Helpers ──────────────────────────────────────────────────────────────
@@ -236,5 +238,10 @@ def handle_unexpected_error(err):
 
 
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5016, debug=True)

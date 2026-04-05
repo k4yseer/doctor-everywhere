@@ -8,6 +8,7 @@ import threading
 import time
 import pika
 import json
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from app.error_publisher import publish_error as _publish_error
 
@@ -48,6 +49,8 @@ AMQP_URL = environ.get('AMQP_URL', 'amqp://guest:guest@rabbitmq:5672/')
 EXCHANGE_NAME = 'topic_logs'
 PAYMENT_SUCCESS_ROUTING_KEY = 'payment.success'
 QUEUE_NAME = 'inventory.payment.success'
+SERVICE_NAME = "inventory"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 
 class Base(DeclarativeBase):
@@ -427,6 +430,10 @@ def start_amqp_consumer():
 t = threading.Thread(target=start_amqp_consumer, daemon=True)
 t.start()
 
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5009, debug=True)

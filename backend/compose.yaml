@@ -397,7 +397,7 @@ services:
       - ./kong.yml:/usr/local/kong/declarative/kong.yml
 
   # ── Make Prescription Composite ───────────────────────────────────────────
-  make-prescription:
+  make-prescription-service:
     build:
       context: ./composite/make_prescription
     ports:
@@ -436,8 +436,8 @@ services:
       - delivery-service
       - join-queue-service
       - setup-consultation-service
-      - make-prescription
-      - make-payment
+      - make-prescription-service
+      - make-payment-service
 
   # ── Prometheus (Time-Series Database) ────────────────────────────────────
   prometheus:
@@ -487,7 +487,7 @@ services:
       - kong-dbless
 
   # ── Make Payment Composite ────────────────────────────────────────────────
-  make-payment:
+  make-payment-service:
     build:
       context: ./composite/make_payment
     ports:

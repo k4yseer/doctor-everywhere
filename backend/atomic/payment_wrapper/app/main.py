@@ -4,6 +4,7 @@ import stripe
 import pika
 from flask import Flask, request, jsonify
 from flasgger import Swagger
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 swagger = Swagger(app, template={
@@ -16,6 +17,8 @@ swagger = Swagger(app, template={
 
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 RABBITMQ_URL   = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+SERVICE_NAME = "payment-wrapper"
+SERVICE_UP = Gauge("service_up", "1 if service is up, 0 otherwise", ["service_name"])
 
 
 # ── AMQP error publisher ──────────────────────────────────────────────────────
@@ -202,6 +205,11 @@ def create_charge():
             "success": False,
             "error": "Payment processing failed at the gateway."
         }), 500
+
+@app.route("/metrics")
+def metrics():
+    SERVICE_UP.labels(service_name=SERVICE_NAME).set(1)
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == '__main__':
     port = int(os.getenv('STRIPE_WRAPPER_PORT', 5005))

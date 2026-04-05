@@ -56,7 +56,7 @@ def _log_step(correlation_id: str, message: str):
     app.logger.info(f"[{correlation_id}] {message}")
 
 
-@app.route("/make-payment", methods=["POST"])
+@app.route("/api/make-payment", methods=["POST"])
 def make_payment():
     """
     Composite: fetch invoice, process payment, update invoice status, and emit payment.success.

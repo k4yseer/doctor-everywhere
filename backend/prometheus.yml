@@ -65,8 +65,8 @@ scrape_configs:
 
   - job_name: 'make-prescription-service'
     static_configs:
-      - targets: ['make-prescription-service:5015']
+      - targets: ['make-prescription:5015']
 
   - job_name: 'make-payment-service'
     static_configs:
-      - targets: ['make-payment-service:5016']
+      - targets: ['make-payment:5016']

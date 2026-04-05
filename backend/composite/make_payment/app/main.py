@@ -83,7 +83,7 @@ def make_payment():
               description: Stripe PaymentMethod ID
             patient_address:
               type: string
-            phone_number:
+            patient_email:
               type: string
     responses:
       200:

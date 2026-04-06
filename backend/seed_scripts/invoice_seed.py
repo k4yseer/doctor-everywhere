@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import Column, DateTime, Numeric, String, create_engine, delete
+from sqlalchemy import Column, DateTime, Numeric, String, Integer, create_engine, delete
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -19,8 +19,8 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     invoice_id = Column(String(64), primary_key=True)
-    appointment_id = Column(String(64), nullable=False)
-    patient_id = Column(String(64), nullable=False)
+    appointment_id = Column(Integer, nullable=False)
+    patient_id = Column(Integer, nullable=False)
     consultation_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
     medicine_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
     amount = Column(Numeric(10, 2), nullable=False)
@@ -49,8 +49,8 @@ def seed():
             invoices.append(
                 Invoice(
                     invoice_id=item["invoice_id"],
-                    appointment_id=str(item["appointment_id"]),
-                    patient_id=str(item["patient_id"]),
+                    appointment_id=item["appointment_id"],
+                    patient_id=item["patient_id"],
                     consultation_fee=item["consultation_fee"],
                     medicine_fee=item["medicine_fee"],
                     amount=item["amount"],

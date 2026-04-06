@@ -4,7 +4,7 @@
 import apiClient from '@/core/apiClient';
 
 export interface Patient {
-  patient_id: string;
+  patient_id: number;
   patient_name: string;
   gender?: string;
   address?: string;
@@ -29,7 +29,7 @@ export const patientService = {
   /**
    * Get patient details by ID
    */
-  getById: async (patientId: string) => {
+  getById: async (patientId: number) => {
     const { data } = await apiClient.get<{ code: number; data: Patient }>(`/patient/${patientId}/details`);
     return data;
   },
@@ -37,7 +37,7 @@ export const patientService = {
   /**
    * Get patient allergies
    */
-  getAllergies: async (patientId: string) => {
+  getAllergies: async (patientId: number) => {
     const { data } = await apiClient.get<{ code: number; data: Allergy[] }>(`/patients/${patientId}/allergies`);
     return data;
   },
@@ -45,7 +45,7 @@ export const patientService = {
   /**
    * Check allergies against prescription
    */
-  checkAllergies: async (patientId: string, prescription: string[]) => {
+  checkAllergies: async (patientId: number, prescription: string[]) => {
     const { data } = await apiClient.post<{ code: number; data: { check: 'PASSED' | 'FAILED'; allergic_drugs?: string[] } }>('/patient/check-allergies', {
       patient_id: patientId,
       prescription,

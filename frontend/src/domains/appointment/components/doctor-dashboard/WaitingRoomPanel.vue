@@ -3,14 +3,6 @@ import type { QueuePatient } from "./types";
 
 defineProps<{ queuePatients: QueuePatient[]; isCallDisabled?: boolean; isLoading?: boolean }>();
 const emit = defineEmits<{ (e: "call-next"): void; (e: "refresh"): void }>();
-
-function formatTime(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false });
-  } catch {
-    return "--:--";
-  }
-}
 </script>
 
 <template>

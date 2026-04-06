@@ -80,8 +80,8 @@ async function loadQueue() {
     const res = await QueueService.getAll();
     const entries = res.data ?? [];
 
-    const uniquePatientIds = Array.from(new Set(entries.map((e) => String(e.patient_id))));
-    const patientNameMap = new Map<string, string>();
+    const uniquePatientIds = Array.from(new Set(entries.map((e) => e.patient_id)));
+    const patientNameMap = new Map<number, string>();
 
     await Promise.all(
       uniquePatientIds.map(async (pid) => {
@@ -97,7 +97,7 @@ async function loadQueue() {
 
     queuePatients.value = entries.map((entry) => ({
       ...entry,
-      patient_name: patientNameMap.get(String(entry.patient_id)) ?? `Patient ${entry.patient_id}`,
+      patient_name: patientNameMap.get(entry.patient_id) ?? `Patient ${entry.patient_id}`,
     }));
   } catch (e) { console.error("Failed to fetch queue:", e); }
 }
@@ -119,8 +119,9 @@ async function callNextPatient() {
     const payload: Record<string, unknown> = { doctor_id: DOCTOR_ID };
 
      // Call setup-consultation (handles dequeueing, Zoom creation, appointment creation, and emailing patient)
-    const { data } = await apiClient.post<any>('/setup-consultation/next-patient', payload);
+    const { data } = await apiClient.post('/setup-consultation/next-patient', payload);
     const pid = data.patient.patient_id;
+    const appointmentId = data.appointment_id;
     
     // Refresh queue locally since we just dequeued
     loadQueue();
@@ -141,7 +142,7 @@ async function callNextPatient() {
       gender: data.patient.gender ?? null,
       allergies: [],
       history: [],
-      appointment_id: data.appointment_id,
+      appointment_id: appointmentId,
       join_url: data.start_url,
     };
 
@@ -154,9 +155,9 @@ async function callNextPatient() {
       getPatientVisitHistory(pid),
     ]).then(([allergies, rawHistory]) => {
       if (!activePatient.value || activePatient.value.patient_id !== pid) return; // stale or cleared
-      const currentAppointmentId = Number(activePatient.value.appointment_id);
+      const currentAppointmentId = activePatient.value.appointment_id;
       const history = rawHistory
-      .filter((item) => Number(item.appointment_id) !== currentAppointmentId)
+      .filter((item) => item.appointment_id !== currentAppointmentId)
       .sort((a, b) => {
         if (!a.date) return 1;
         if (!b.date) return -1;

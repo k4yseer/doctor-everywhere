@@ -12,10 +12,11 @@ export interface PrescriptionDrug {
 
 export interface CreatePrescriptionPayload {
   appointment_id: number;
-  patient_id: string;
+  patient_id: number;
   medicines: PrescriptionDrug[];
   mc_start_date?: string | null;
   mc_duration_days?: number | null;
+  mc_diagnosis?: string | null;
   consultation_notes?: string;
 }
 

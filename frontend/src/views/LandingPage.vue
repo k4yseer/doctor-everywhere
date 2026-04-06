@@ -6,7 +6,7 @@ import { usePatientSessionStore } from '@/stores/patientSessionStore'
 
 const router = useRouter()
 const profileOpen = ref(false)
-const selectedPatientId = ref('')
+const selectedPatientId = ref<number | null>(null)
 const patientSessionStore = usePatientSessionStore()
 const { patients: patientOptions, selectedPatient, isLoading: loadingPatients } = storeToRefs(patientSessionStore)
 
@@ -77,13 +77,13 @@ function goToQueue() {
 
 function goToConsults() {
   if (!canProceed.value) return
-  router.push({ path: '/appointments', query: { patientId: selectedPatientId.value } })
+  router.push({ path: '/appointments', query: { patientId: String(selectedPatientId.value) } })
 }
 
 watch(
   selectedPatient,
   (patient) => {
-    selectedPatientId.value = patient ? String(patient.patient_id) : ''
+    selectedPatientId.value = patient ? patient.patient_id : null
   },
   { immediate: true },
 )
@@ -128,7 +128,7 @@ onUnmounted(() => {
           :disabled="loadingPatients || patientOptions.length === 0"
           @change="onPatientSelectionChange"
         >
-          <option v-for="patient in patientOptions" :key="patient.patient_id" :value="String(patient.patient_id)">
+          <option v-for="patient in patientOptions" :key="patient.patient_id" :value="patient.patient_id">
             {{ patient.patient_name }} ({{ patient.patient_id }})
           </option>
         </select>

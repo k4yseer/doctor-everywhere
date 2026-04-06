@@ -17,7 +17,7 @@ const refreshing = ref(false)
 const showNoDoctersToast = ref(false)
 const patientSessionStore = usePatientSessionStore()
 const { selectedPatient } = storeToRefs(patientSessionStore)
-const selectedPatientId = computed(() => selectedPatient.value ? String(selectedPatient.value.patient_id) : '')
+const selectedPatientId = computed(() => selectedPatient.value?.patient_id ?? null)
 const selectedPatientName = computed(() => selectedPatient.value?.patient_name ?? '')
 
 type ApiErrorLike = {
@@ -62,14 +62,9 @@ function isDequeuedFromQueue(err: unknown): boolean {
   return message.includes('queue') || message.includes('patient') || message.includes('not found')
 }
 
-async function getLatestAppointmentStatus(patientId: string): Promise<string | null> {
-  const numericId = Number(patientId)
-  if (!Number.isFinite(numericId)) {
-    return null
-  }
-
+async function getLatestAppointmentStatus(patientId: number): Promise<string | null> {
   try {
-    const appointments = await AppointmentService.getAppointmentsByPatient(numericId)
+    const appointments = await AppointmentService.getAppointmentsByPatient(patientId)
     if (!appointments.length) {
       return null
     }

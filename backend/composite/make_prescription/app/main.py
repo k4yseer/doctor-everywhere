@@ -54,7 +54,7 @@ def make_prescription():
             appointment_id:
               type: integer
             patient_id:
-              type: string
+              type: integer
             medicines:
               type: array
               items:
@@ -114,6 +114,18 @@ def make_prescription():
             "appointment_id must be a positive integer",
             "MAKE-PRESCRIPTION-400-INVALID_APPOINTMENT_ID",
             {"appointment_id": appointment_id},
+        )
+
+    try:
+        patient_id = int(patient_id)
+        if patient_id <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return error_response(
+            400,
+            "patient_id must be a positive integer",
+            "MAKE-PRESCRIPTION-400-INVALID_PATIENT_ID",
+            {"patient_id": patient_id},
         )
 
     # ── Step 3: Check patient allergies ────────────────────────────────────────
@@ -239,8 +251,8 @@ def make_prescription():
             prescription_resp = requests.post(
                 f"{PRESCRIPTION_SERVICE_URL}/CreatePrescription",
                 json={
-                    "appointment_id":      str(appointment_id),
-                    "patient_id":          str(patient_id),
+                    "appointment_id":      appointment_id,
+                    "patient_id":          patient_id,
                     "medicine_code":       "MC",
                     "medicine_name":       "MC",
                     "dosage_instructions": "-",
@@ -270,8 +282,8 @@ def make_prescription():
                 prescription_resp = requests.post(
                     f"{PRESCRIPTION_SERVICE_URL}/CreatePrescription",
                     json={
-                        "appointment_id":      str(appointment_id),
-                        "patient_id":          str(patient_id),
+                        "appointment_id":      appointment_id,
+                        "patient_id":          patient_id,
                         "medicine_code":       medicine_code,
                         "medicine_name":       str(medicine.get("medicine_name") or ""),
                         "dosage_instructions": medicine.get("dosage_instructions") or "",

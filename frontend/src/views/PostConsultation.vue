@@ -14,13 +14,6 @@ const router = useRouter()
 const route = useRoute()
 const patientSessionStore = usePatientSessionStore()
 
-function parseRouteId(value: string | number | null | undefined | Array<string | number | null>): number | undefined {
-  if (value == null) return undefined
-  const raw = Array.isArray(value) ? value[0] : value
-  const numeric = Number(raw)
-  return isNaN(numeric) ? undefined : numeric
-}
-
 const loading = ref(true)
 const consultation = ref<ConsultationData | null>(null)
 
@@ -119,8 +112,14 @@ async function createPaymentMethod(): Promise<string | null> {
 }
 
 onMounted(async () => {
-  const patientId = parseRouteId(route.query.patientId) ?? 1
-  const appointmentId = parseRouteId(route.query.appointmentId)
+  const rawPatientId = Array.isArray(route.query.patientId) ? route.query.patientId[0] : route.query.patientId
+  const parsedPatientId = Number(rawPatientId ?? 1)
+  const patientId = Number.isFinite(parsedPatientId) ? parsedPatientId : 1
+
+  const rawAppointmentId = Array.isArray(route.query.appointmentId) ? route.query.appointmentId[0] : route.query.appointmentId
+  const parsedAppointmentId = rawAppointmentId == null ? NaN : Number(rawAppointmentId)
+  const appointmentId = Number.isFinite(parsedAppointmentId) ? parsedAppointmentId : undefined
+
   consultation.value = await PostConsultService.getConsultation(patientId, appointmentId)
   const storePatient = patientSessionStore.selectedPatient
   const patient = storePatient

@@ -49,6 +49,7 @@ From the `backend` directory:
 
 ### Useful endpoints (local defaults)
 
+- **Swagger Documentation:** [http://localhost:8080](http://localhost:8080) — overview of all endpoints
 - **Kong proxy (API gateway):** [http://localhost:8000](http://localhost:8000) — routes declared in `backend/kong.yml` (e.g. `/join-queue`, `/setup-consultation`, `/make-prescription`, and consultation history under `/consultation-history/...`).
 - **Kong Admin API:** [http://localhost:8001](http://localhost:8001)
 - **Kong Manager (read-only GUI):** [http://localhost:8002](http://localhost:8002)

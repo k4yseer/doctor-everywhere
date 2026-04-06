@@ -4,18 +4,28 @@ import { patientService, type Patient } from '@/domains/patient/patientService'
 
 const PATIENT_STORAGE_KEY = 'demoPatientId'
 
-function readPersistedPatientId(): string {
+function readPersistedPatientId(): number | null {
   try {
-    return localStorage.getItem(PATIENT_STORAGE_KEY) ?? ''
+    const raw = localStorage.getItem(PATIENT_STORAGE_KEY)
+    if (!raw) {
+      return null
+    }
+
+    const parsed = Number(raw)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return null
+    }
+
+    return parsed
   } catch {
-    return ''
+    return null
   }
 }
 
-function persistPatientId(patientId: string): void {
+function persistPatientId(patientId: number | null): void {
   try {
     if (patientId) {
-      localStorage.setItem(PATIENT_STORAGE_KEY, patientId)
+      localStorage.setItem(PATIENT_STORAGE_KEY, String(patientId))
       return
     }
     localStorage.removeItem(PATIENT_STORAGE_KEY)
@@ -29,9 +39,7 @@ export const usePatientSessionStore = defineStore('patient-session', () => {
   const selectedPatient = ref<Patient | null>(null)
   const isLoading = ref(false)
 
-  const selectedPatientId = computed(() =>
-    selectedPatient.value ? String(selectedPatient.value.patient_id) : '',
-  )
+  const selectedPatientId = computed(() => selectedPatient.value?.patient_id ?? null)
 
   async function loadPatients(): Promise<Patient[]> {
     isLoading.value = true
@@ -44,10 +52,10 @@ export const usePatientSessionStore = defineStore('patient-session', () => {
     }
   }
 
-  async function selectPatientById(patientId: string): Promise<Patient | null> {
+  async function selectPatientById(patientId: number | null): Promise<Patient | null> {
     if (!patientId) {
       selectedPatient.value = null
-      persistPatientId('')
+      persistPatientId(null)
       return null
     }
 
@@ -55,16 +63,16 @@ export const usePatientSessionStore = defineStore('patient-session', () => {
       await loadPatients()
     }
 
-    const fallback = patients.value.find((p) => String(p.patient_id) === String(patientId)) ?? null
+    const fallback = patients.value.find((p) => p.patient_id === patientId) ?? null
 
     try {
-      const response = await patientService.getById(String(patientId))
+      const response = await patientService.getById(patientId)
       selectedPatient.value = response?.data ?? fallback
     } catch {
       selectedPatient.value = fallback
     }
 
-    persistPatientId(selectedPatient.value ? String(selectedPatient.value.patient_id) : '')
+    persistPatientId(selectedPatient.value?.patient_id ?? null)
 
     return selectedPatient.value
   }
@@ -75,7 +83,7 @@ export const usePatientSessionStore = defineStore('patient-session', () => {
     }
 
     if (selectedPatient.value) {
-      persistPatientId(String(selectedPatient.value.patient_id))
+      persistPatientId(selectedPatient.value.patient_id)
       return
     }
 
@@ -88,7 +96,7 @@ export const usePatientSessionStore = defineStore('patient-session', () => {
     }
 
     if (patients.value.length) {
-      await selectPatientById(String(patients.value[0].patient_id))
+      await selectPatientById(patients.value[0].patient_id)
     }
   }
 

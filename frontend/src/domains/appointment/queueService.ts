@@ -8,17 +8,17 @@ export interface QueueEntry {
 
 export interface QueuePatient {
   id: number;
-  patient_id: string;
+  patient_id: number;
   created_at: string;
 }
 
 export const QueueService = {
-  async joinQueue(patient_id: string): Promise<QueueEntry> {
+  async joinQueue(patient_id: number): Promise<QueueEntry> {
     const { data } = await apiClient.post<QueueEntry>("/join-queue", { patient_id });
     return { queue_id: data.queue_id, queue_position: data.queue_position, waiting_time: data.waiting_time };
   },
 
-  async getQueueStatus(patient_id: string): Promise<QueueEntry> {
+  async getQueueStatus(patient_id: number): Promise<QueueEntry> {
     const { data } = await apiClient.get<QueueEntry>(`/join-queue/status/${patient_id}`);
     return { queue_id: data.queue_id, queue_position: data.queue_position, waiting_time: data.waiting_time };
   },

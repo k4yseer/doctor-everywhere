@@ -25,7 +25,7 @@ interface ConsultationHistoryGraphQLResponse {
  * Fetch past consultations for a patient (doctor-relevant fields only).
  * Excludes billing/delivery — just appointment date, status, clinical notes, and prescriptions.
  */
-export async function getPatientVisitHistory(patientId: string): Promise<PatientHistory[]> {
+export async function getPatientVisitHistory(patientId: number): Promise<PatientHistory[]> {
   const query = `
     query ($patientId: Int!) {
       consultationHistory(patientId: $patientId) {
@@ -42,7 +42,7 @@ export async function getPatientVisitHistory(patientId: string): Promise<Patient
   try {
     const { data } = await apiClient.post<ConsultationHistoryGraphQLResponse>('/graphql', {
       query,
-      variables: { patientId: parseInt(patientId, 10) },
+      variables: { patientId },
     });
 
     const items = data?.data?.consultationHistory ?? [];

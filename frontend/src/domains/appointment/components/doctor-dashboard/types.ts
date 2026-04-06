@@ -1,6 +1,6 @@
 export interface QueuePatient {
   id: number;
-  patient_id: string;
+  patient_id: number;
   patient_name: string;
   created_at: string;
 }
@@ -20,7 +20,7 @@ export interface PatientHistory {
 
 export interface ActivePatient {
   id: number;
-  patient_id: string;
+  patient_id: number;
   patient_name: string;
   age: number | null;
   gender: string | null;

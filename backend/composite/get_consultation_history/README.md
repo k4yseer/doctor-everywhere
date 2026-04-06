@@ -80,24 +80,6 @@ curl -s http://localhost:5013/consultation-history/1 | jq .
 ## Related composites
 - Join Queue: `backend/composite/join_queue/README.md`
 - Setup Consultation: `backend/composite/setup_consultation/README.md`
-
-## Run locally (with compose)
-From the `backend` folder:
-
-```sh
-docker compose -f compose.yaml up -d rabbitmq appointment-service invoice-service delivery-service get-consultation-history-service
-```
-
-Then test:
-
-```sh
-# aggregated view for patient 1
-curl -s http://localhost:5013/consultation-history/1 | jq .
-```
-
-## Troubleshooting
-- If you get an empty array, verify `appointment-service` returns appointments for the patient:
-  `curl -s http://localhost:5002/appointments/patient/1 | jq .`
 - If composite returns 500, check its logs:
   `docker compose -f compose.yaml logs --tail=200 get-consultation-history-service`
 - Ensure RabbitMQ is running if you expect error messages to be published.

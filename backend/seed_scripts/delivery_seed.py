@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from sqlalchemy import Column, String, Text, create_engine, delete
+from sqlalchemy import Column, String, Text, Integer, create_engine, delete
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -18,7 +18,7 @@ class Delivery(Base):
     __tablename__ = "delivery"
 
     delivery_id = Column(String(36), primary_key=True)
-    appointment_id = Column(String(36), nullable=False)
+    appointment_id = Column(Integer, nullable=False)
     patient_address = Column(Text, nullable=False)
     tracking_number = Column(String(100), nullable=True)
     delivery_status = Column(String(20), nullable=False, default="PENDING")
@@ -43,7 +43,7 @@ def seed():
             deliveries.append(
                 Delivery(
                     delivery_id=item["delivery_id"],
-                    appointment_id=str(item["appointment_id"]),
+                    appointment_id=item["appointment_id"],
                     patient_address=item["patient_address"],
                     tracking_number=item.get("tracking_number"),
                     delivery_status=item["delivery_status"],

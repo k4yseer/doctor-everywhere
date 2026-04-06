@@ -150,7 +150,6 @@ export const PostConsultService = {
     if (!Array.isArray(rawData)) {
       throw new Error('No consultation history found');
     }
-    console.log(rawData)
 
     // Map GraphQL response to frontend structure
     const historyItems: ConsultationHistoryItem[] = rawData.map((r: any) => ({

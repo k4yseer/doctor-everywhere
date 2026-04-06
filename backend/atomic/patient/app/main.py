@@ -202,7 +202,7 @@ def find_by_id(patient_id):
     return error_response(404, "Patient not found.", "PATIENT-404-NOT_FOUND",
                           {"patient_id": patient_id})
 
-
+@app.route("/api/patients", methods=['GET'])
 @app.route("/patients", methods=['GET'])
 def get_all_patients():
     """

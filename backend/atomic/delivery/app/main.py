@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flasgger import Swagger
 from werkzeug.exceptions import HTTPException
-from sqlalchemy import create_engine, Column, String, Text, DateTime, select
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, select
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.error_publisher import publish_error as _publish_error
 import uuid
@@ -73,7 +73,7 @@ class Delivery(Base):
     __tablename__ = "delivery"
 
     delivery_id      = Column(String(36),  primary_key=True, default=lambda: str(uuid.uuid4()))
-    appointment_id   = Column(String(36),  nullable=False)
+    appointment_id   = Column(Integer,     nullable=False)
     patient_address  = Column(String(255), nullable=False)
     tracking_number  = Column(String(100), nullable=True)
     delivery_status  = Column(String(20),  nullable=False, default="PENDING")
@@ -116,7 +116,7 @@ def get_deliveries_by_patient(patient_id):
         appointment_id = request.args.get("appointment_id")
         if appointment_id:
             try:
-                appointment_id = int(appointment_id)  # <-- FIX: convert to integer
+                appointment_id = int(appointment_id)
             except ValueError:
                 return error_response(
                     400,
@@ -293,14 +293,14 @@ def process_payment_success(ch, method, properties, body):
         session = Session()
         try:
             existing = session.execute(
-                select(Delivery).where(Delivery.appointment_id == str(appointment_id))
+                select(Delivery).where(Delivery.appointment_id == appointment_id)
             ).scalar_one_or_none()
             if existing:
                 app.logger.info(f"Delivery already exists for appointment_id={appointment_id}")
             else:
                 delivery = Delivery(
                     delivery_id=str(uuid.uuid4()),
-                    appointment_id=str(appointment_id),
+                    appointment_id=appointment_id,
                     patient_address=patient_address,
                     delivery_status="PENDING",
                 )

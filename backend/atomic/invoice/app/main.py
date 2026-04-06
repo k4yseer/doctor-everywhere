@@ -60,7 +60,7 @@ class Invoice(Base):
     __tablename__ = 'invoices'
 
     invoice_id = Column(String(64), primary_key=True)
-    appointment_id = Column(String(64), nullable=False)
+    appointment_id = Column(Integer, nullable=False)
     patient_id = Column(Integer, nullable=False)
     consultation_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
     medicine_fee = Column(Numeric(10, 2), nullable=False, default=0.0)
@@ -101,7 +101,7 @@ def close_db(exception=None):
         db.close()
 
 
-@app.route('/invoices/<string:appt_id>', methods=['GET'])
+@app.route('/invoices/<int:appt_id>', methods=['GET'])
 def get_invoice(appt_id):
     """
     Get invoice by appointment ID.
@@ -111,9 +111,9 @@ def get_invoice(appt_id):
     parameters:
       - in: path
         name: appt_id
-        type: string
+        type: integer
         required: true
-        example: "1"
+        example: 1
     responses:
       200:
         description: Invoice details
@@ -135,8 +135,8 @@ def get_invoice(appt_id):
             type: string
             example: "550e8400-e29b-41d4-a716-446655440000"
           appointment_id:
-            type: string
-            example: "1"
+            type: integer
+            example: 1
           patient_id:
             type: integer
             example: 1
@@ -162,7 +162,7 @@ def get_invoice(appt_id):
     if not invoice:
         return error_response(
             404,
-            'Invoice not found for appointment_id: ' + appt_id,
+            f'Invoice not found for appointment_id: {appt_id}',
             'INVOICE-404-NOT_FOUND',
             {'appointment_id': appt_id},
         )
@@ -170,7 +170,7 @@ def get_invoice(appt_id):
     return jsonify({'code': 200, 'data': invoice.json()}), 200
 
 
-@app.route('/invoices/<string:appt_id>', methods=['POST'])
+@app.route('/invoices/<int:appt_id>', methods=['POST'])
 def create_invoice(appt_id):
     """
     Create an invoice for an appointment.
@@ -182,9 +182,9 @@ def create_invoice(appt_id):
     parameters:
       - in: path
         name: appt_id
-        type: string
+        type: integer
         required: true
-        example: "1"
+        example: 1
       - in: body
         name: body
         required: true
@@ -261,7 +261,7 @@ def create_invoice(appt_id):
     if exists:
         return error_response(
             409,
-            'Invoice already exists for appointment_id: ' + appt_id,
+            f'Invoice already exists for appointment_id: {appt_id}',
             'INVOICE-409-ALREADY_EXISTS',
             {'appointment_id': appt_id},
         )
@@ -286,7 +286,7 @@ def create_invoice(appt_id):
     return jsonify({'code': 201, 'data': invoice.json()}), 201
 
 
-@app.route('/invoices/<string:appt_id>', methods=['PUT'])
+@app.route('/invoices/<int:appt_id>', methods=['PUT'])
 def update_invoice(appt_id):
     data = request.get_json()
     if not data:
@@ -310,7 +310,7 @@ def update_invoice(appt_id):
     if not invoice:
         return error_response(
             404,
-            'Invoice not found for appointment_id: ' + appt_id,
+            f'Invoice not found for appointment_id: {appt_id}',
             'INVOICE-404-NOT_FOUND',
             {'appointment_id': appt_id},
         )

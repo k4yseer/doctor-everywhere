@@ -23,7 +23,6 @@ function parseRouteId(value: string | number | null | undefined | Array<string |
 
 const loading = ref(true)
 const consultation = ref<ConsultationData | null>(null)
-const useMock = import.meta.env.VITE_USE_MOCK === 'true'
 
 const deliveryAddress = ref('')
 const deliveryState = ref<'idle' | 'scheduling' | 'scheduled'>('idle')
@@ -130,9 +129,7 @@ onMounted(async () => {
     deliveryAddress.value = patient.address
   }
 
-  email.value = useMock
-    ? import.meta.env.VITE_EMAIL
-    : (storePatient?.email || patient?.email || '')
+  email.value = storePatient?.email || patient?.email || ''
   if (consultation.value.delivery) {
     delivery.value = consultation.value.delivery
     deliveryState.value = 'scheduled'

@@ -35,12 +35,26 @@ From the `backend` directory:
 
    This brings up MySQL instances per service, RabbitMQ, Kong in DB-less declarative mode, and all Flask services defined in `compose.yaml`.
 
+3. **Seed the database** — Before seeding, open `seed_scripts/common_seed.json` and replace the placeholder email(s) with your own email address so you receive any notifications the app sends:
+
+   ```json
+   "email": "your@email.com"
+   ```
+
+   Then, with the stack running, seed all services:
+
+   ```bash
+   bash seed_scripts/seed_all.sh
+   ```
+
 ### Useful endpoints (local defaults)
 
 - **Kong proxy (API gateway):** [http://localhost:8000](http://localhost:8000) — routes declared in `backend/kong.yml` (e.g. `/join-queue`, `/setup-consultation`, `/make-prescription`, and consultation history under `/consultation-history/...`).
 - **Kong Admin API:** [http://localhost:8001](http://localhost:8001)
 - **Kong Manager (read-only GUI):** [http://localhost:8002](http://localhost:8002)
 - **RabbitMQ management UI:** [http://localhost:15672](http://localhost:15672) — default credentials `guest` / `guest`
+- **Prometheus:** [http://localhost:9090](http://localhost:9090) — metrics scraping and querying
+- **Grafana:** [http://localhost:3000](http://localhost:3000) — dashboards for service metrics; default credentials `admin` / `admin`
 
 Individual services also expose host ports (5001–5015 range and dedicated MySQL ports); see `backend/compose.yaml` for the authoritative mapping.
 
@@ -61,7 +75,7 @@ The dev server URL is printed in the terminal (Vite default is often `http://loc
 Copy `frontend/.env.example` to `frontend/.env` if you need to override defaults. Notable variables:
 
 - `VITE_API_GATEWAY_URL` — base URL used by the shared Axios client (`src/core/apiClient.ts`). Point this at the gateway or backend you are exercising (e.g. Kong on port `8000` for composite routes).
-- `VITE_USE_MOCK` — set to `true` to use mock data in flows that support it when APIs are unavailable.
+- `VITE_STRIPE_PUBLISHABLE_KEY` — stripe key
 
 During development, `frontend/vite.config.ts` may proxy `/api` to a local service (e.g. appointment); adjust the proxy target if your ports differ from `compose.yaml`.
 
